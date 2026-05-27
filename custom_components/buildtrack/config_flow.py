@@ -374,6 +374,15 @@ class BuildTrackConfigFlow(
                     content_type=None
                 )
 
+                _LOGGER.warning(
+                    "BUILTRACK TOKEN RESPONSE | access_token=%s | refresh_token=%s | token_type=%s | expires_in=%s | full=%s",
+                    data.get("access_token"),
+                    data.get("refresh_token"),
+                    data.get("token_type"),
+                    data.get("expires_in"),
+                    data,
+                )
+
                 if not data.get(
                     "access_token"
                 ):
