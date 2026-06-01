@@ -65,9 +65,38 @@ async def async_setup_entry(hass, entry, async_add_entities, discovery_info=None
 
     climates = []
 
+    _LOGGER.warning(
+        "BUILTRACK CLIMATE SETUP START | total_devices=%s",
+        len(devices),
+    )
+
     for device in devices:
-        if "THERMOSTAT" in device.get("type", []):
+        device_types = device.get("type", [])
+
+        _LOGGER.warning(
+            "BUILTRACK CLIMATE DEVICE CHECK | name=%s | id=%s | key=%s | type=%s",
+            device.get("entityName"),
+            device.get("entityId"),
+            device.get("entityKey"),
+            device_types,
+        )
+
+        if (
+            "THERMOSTAT" in device_types
+            or "AC" in device_types
+            or "AIR CONDITIONER" in device_types
+        ):
             climates.append(BuildTrackClimate(hass, api, device))
+
+            _LOGGER.warning(
+                "BUILTRACK CLIMATE ADDED | %s",
+                device.get("entityName"),
+            )
+
+    _LOGGER.warning(
+        "BUILTRACK CLIMATE SETUP COMPLETE | total_added=%s",
+        len(climates),
+    )
 
     async_add_entities(climates)
 
@@ -100,6 +129,7 @@ class BuildTrackClimate(ClimateEntity):
             HVACMode.HEAT,
             HVACMode.OFF,
         ]
+
         self._attr_hvac_mode = HVACMode.OFF
         self._attr_hvac_action = HVACAction.OFF
 
@@ -109,6 +139,13 @@ class BuildTrackClimate(ClimateEntity):
         self._attr_supported_features = (
             ClimateEntityFeature.TARGET_TEMPERATURE
             | ClimateEntityFeature.FAN_MODE
+        )
+
+        _LOGGER.warning(
+            "BUILTRACK CLIMATE INIT | name=%s | id=%s | key=%s",
+            self._attr_name,
+            self._entity_id,
+            self._entity_key,
         )
 
     @property
@@ -125,6 +162,11 @@ class BuildTrackClimate(ClimateEntity):
         return get_location(self._device)
 
     async def async_added_to_hass(self):
+        _LOGGER.warning(
+            "BUILTRACK CLIMATE ADDED TO HASS | %s",
+            self._attr_name,
+        )
+
         location = get_location(self._device)
 
         if location:
@@ -139,10 +181,17 @@ class BuildTrackClimate(ClimateEntity):
             speed = self._attr_fan_mode or ""
 
         payload = {
+            "entityId": self._entity_id,
             "entityKey": self._entity_key or "",
             "state": state or "",
             "speed": speed or "",
         }
+
+        _LOGGER.warning(
+            "BUILTRACK CLIMATE CONTROL API CALL | name=%s | payload=%s",
+            self._attr_name,
+            payload,
+        )
 
         try:
             response = await self._api.call(
@@ -152,10 +201,8 @@ class BuildTrackClimate(ClimateEntity):
             )
 
             _LOGGER.warning(
-                "CLIMATE CONTROL API RESPONSE | name=%s | entity_id=%s | payload=%s | response=%s",
+                "BUILTRACK CLIMATE CONTROL API RESPONSE | name=%s | response=%s",
                 self._attr_name,
-                self._entity_id,
-                payload,
                 response,
             )
 
@@ -163,9 +210,8 @@ class BuildTrackClimate(ClimateEntity):
 
         except Exception as err:
             _LOGGER.exception(
-                "CLIMATE CONTROL API ERROR | name=%s | entity_id=%s | payload=%s | error=%s",
+                "BUILTRACK CLIMATE CONTROL API ERROR | name=%s | payload=%s | error=%s",
                 self._attr_name,
-                self._entity_id,
                 payload,
                 err,
             )
@@ -191,19 +237,22 @@ class BuildTrackClimate(ClimateEntity):
         try:
             await asyncio.sleep(0.5)
 
+            payload = {
+                "entityId": self._entity_id,
+                "entityKey": self._entity_key or "",
+                "temperature": temperature,
+            }
+
             response = await self._api.call(
                 endpoint=f"/setTemperature/{self._entity_id}",
                 method="POST",
-                payload={
-                    "entityKey": self._entity_key or "",
-                    "temperature": temperature,
-                },
+                payload=payload,
             )
 
             _LOGGER.warning(
-                "TEMPERATURE API RESPONSE | name=%s | temp=%s | response=%s",
+                "BUILTRACK CLIMATE TEMPERATURE API RESPONSE | name=%s | payload=%s | response=%s",
                 self._attr_name,
-                temperature,
+                payload,
                 response,
             )
 
@@ -212,35 +261,31 @@ class BuildTrackClimate(ClimateEntity):
 
         except Exception as err:
             _LOGGER.exception(
-                "TEMPERATURE API ERROR | name=%s | error=%s",
+                "BUILTRACK CLIMATE TEMPERATURE API ERROR | name=%s | error=%s",
                 self._attr_name,
                 err,
             )
 
     async def async_set_hvac_mode(self, hvac_mode):
         _LOGGER.warning(
-            "HVAC MODE CHANGE REQUEST | name=%s | mode=%s",
+            "BUILTRACK CLIMATE HVAC MODE CHANGE REQUEST | name=%s | mode=%s",
             self._attr_name,
             hvac_mode,
         )
 
         if hvac_mode == HVACMode.OFF:
             await self._control_device("off")
-
             self._attr_hvac_mode = HVACMode.OFF
             self._attr_hvac_action = HVACAction.OFF
 
         else:
             await self._control_device("on")
-
             self._attr_hvac_mode = hvac_mode
 
-            if hvac_mode == HVACMode.COOL:
-                self._attr_hvac_action = HVACAction.COOLING
-            elif hvac_mode == HVACMode.HEAT:
+            if hvac_mode == HVACMode.HEAT:
                 self._attr_hvac_action = HVACAction.HEATING
             else:
-                self._attr_hvac_action = HVACAction.IDLE
+                self._attr_hvac_action = HVACAction.COOLING
 
         self.async_write_ha_state()
 
@@ -249,7 +294,7 @@ class BuildTrackClimate(ClimateEntity):
             return
 
         _LOGGER.warning(
-            "FAN MODE CHANGE REQUEST | name=%s | fan_mode=%s",
+            "BUILTRACK CLIMATE FAN MODE CHANGE REQUEST | name=%s | fan_mode=%s",
             self._attr_name,
             fan_mode,
         )
@@ -263,7 +308,7 @@ class BuildTrackClimate(ClimateEntity):
 
     async def async_update(self):
         _LOGGER.warning(
-            "BUILTRACK THERMOSTAT async_update CALLED | %s | id=%s",
+            "BUILTRACK CLIMATE READ async_update CALLED | name=%s | id=%s",
             self._attr_name,
             self._entity_id,
         )
@@ -274,7 +319,7 @@ class BuildTrackClimate(ClimateEntity):
         }
 
         _LOGGER.warning(
-            "BUILTRACK THERMOSTAT READ API CALL | %s | payload=%s",
+            "BUILTRACK CLIMATE READ API CALL | name=%s | payload=%s",
             self._attr_name,
             payload,
         )
@@ -285,16 +330,17 @@ class BuildTrackClimate(ClimateEntity):
                 method="POST",
                 payload=payload,
             )
+
         except Exception as err:
             _LOGGER.exception(
-                "BUILTRACK THERMOSTAT READ API ERROR | %s | error=%s",
+                "BUILTRACK CLIMATE READ API ERROR | name=%s | error=%s",
                 self._attr_name,
                 err,
             )
             return
 
         _LOGGER.warning(
-            "BUILTRACK THERMOSTAT READ API RESPONSE | %s | raw=%s | type=%s",
+            "BUILTRACK CLIMATE READ API RESPONSE | name=%s | raw=%s | type=%s",
             self._attr_name,
             data,
             type(data),
@@ -302,7 +348,7 @@ class BuildTrackClimate(ClimateEntity):
 
         if not data:
             _LOGGER.warning(
-                "BUILTRACK THERMOSTAT READ EMPTY RESPONSE | %s",
+                "BUILTRACK CLIMATE READ EMPTY RESPONSE | name=%s",
                 self._attr_name,
             )
             return
@@ -310,9 +356,12 @@ class BuildTrackClimate(ClimateEntity):
         if isinstance(data, dict) and isinstance(data.get("data"), dict):
             data = data.get("data")
 
+        if isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
+            data = data[0]
+
         if not isinstance(data, dict):
             _LOGGER.warning(
-                "BUILTRACK THERMOSTAT INVALID RESPONSE FORMAT | %s | data=%s",
+                "BUILTRACK CLIMATE INVALID RESPONSE FORMAT | name=%s | data=%s",
                 self._attr_name,
                 data,
             )
@@ -324,6 +373,10 @@ class BuildTrackClimate(ClimateEntity):
             or data.get("power")
             or data.get("switch")
             or data.get("value")
+            or data.get("acStatus")
+            or data.get("ac_status")
+            or data.get("acState")
+            or data.get("ac_state")
             or ""
         ).strip().lower()
 
@@ -351,7 +404,7 @@ class BuildTrackClimate(ClimateEntity):
         )
 
         _LOGGER.warning(
-            "BUILTRACK THERMOSTAT PARSED DATA | %s | state=%s | speed=%s | target_temp=%s | current_temp=%s",
+            "BUILTRACK CLIMATE PARSED DATA | name=%s | state=%s | speed=%s | target_temp=%s | current_temp=%s",
             self._attr_name,
             state,
             speed,
@@ -359,26 +412,27 @@ class BuildTrackClimate(ClimateEntity):
             current_temp,
         )
 
-        if state in ["on", "1", "true", "yes", "open"]:
+        if state in ["on", "1", "true", "yes", "open", "cool", "cooling"]:
             if self._attr_hvac_mode == HVACMode.OFF:
                 self._attr_hvac_mode = HVACMode.COOL
 
-            if self._attr_hvac_mode == HVACMode.HEAT:
-                self._attr_hvac_action = HVACAction.HEATING
-            else:
-                self._attr_hvac_action = HVACAction.COOLING
+            self._attr_hvac_action = HVACAction.COOLING
+
+        elif state in ["heat", "heating"]:
+            self._attr_hvac_mode = HVACMode.HEAT
+            self._attr_hvac_action = HVACAction.HEATING
 
         elif state in ["off", "0", "false", "no", "close", "closed"]:
             self._attr_hvac_mode = HVACMode.OFF
             self._attr_hvac_action = HVACAction.OFF
 
-        elif not state and speed is None and target_temp is None and current_temp is None:
+        else:
             _LOGGER.warning(
-                "BUILTRACK THERMOSTAT UNKNOWN RESPONSE FORMAT | %s | data=%s",
+                "BUILTRACK CLIMATE UNKNOWN STATE FORMAT | name=%s | state=%s | data=%s",
                 self._attr_name,
+                state,
                 data,
             )
-            return
 
         if speed is not None:
             speed_str = str(speed).strip().lower()
@@ -398,7 +452,7 @@ class BuildTrackClimate(ClimateEntity):
 
                 except Exception as err:
                     _LOGGER.warning(
-                        "BUILTRACK THERMOSTAT SPEED PARSE ERROR | %s | speed=%s | error=%s",
+                        "BUILTRACK CLIMATE SPEED PARSE ERROR | name=%s | speed=%s | error=%s",
                         self._attr_name,
                         speed,
                         err,
@@ -409,7 +463,7 @@ class BuildTrackClimate(ClimateEntity):
                 self._attr_target_temperature = float(target_temp)
             except Exception as err:
                 _LOGGER.warning(
-                    "BUILTRACK THERMOSTAT TARGET TEMP PARSE ERROR | %s | temp=%s | error=%s",
+                    "BUILTRACK CLIMATE TARGET TEMP PARSE ERROR | name=%s | temp=%s | error=%s",
                     self._attr_name,
                     target_temp,
                     err,
@@ -420,7 +474,7 @@ class BuildTrackClimate(ClimateEntity):
                 self._attr_current_temperature = float(current_temp)
             except Exception as err:
                 _LOGGER.warning(
-                    "BUILTRACK THERMOSTAT CURRENT TEMP PARSE ERROR | %s | temp=%s | error=%s",
+                    "BUILTRACK CLIMATE CURRENT TEMP PARSE ERROR | name=%s | temp=%s | error=%s",
                     self._attr_name,
                     current_temp,
                     err,
@@ -429,7 +483,7 @@ class BuildTrackClimate(ClimateEntity):
         self.async_write_ha_state()
 
         _LOGGER.warning(
-            "BUILTRACK THERMOSTAT FINAL HA STATE WRITE | %s | hvac_mode=%s | hvac_action=%s | fan=%s | target_temp=%s | current_temp=%s",
+            "BUILTRACK CLIMATE FINAL HA STATE WRITE | name=%s | hvac_mode=%s | hvac_action=%s | fan=%s | target_temp=%s | current_temp=%s",
             self._attr_name,
             self._attr_hvac_mode,
             self._attr_hvac_action,
