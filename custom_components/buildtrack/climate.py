@@ -316,7 +316,7 @@ class BuildTrackClimate(ClimateEntity):
 
         self.async_write_ha_state()
 
-    async def async_update_device(self):
+    async def async_update(self):
         _LOGGER.warning(
             "BUILTRACK CLIMATE READ async_update_device CALLED | name=%s | id=%s",
             self._attr_name,
