@@ -1,8 +1,13 @@
+import asyncio
 import logging
-from datetime import datetime
 
-from homeassistant.components.light import LightEntity, ColorMode
-from homeassistant.helpers.restore_state import RestoreEntity
+from homeassistant.components.climate import ClimateEntity
+from homeassistant.components.climate.const import (
+    HVACMode,
+    HVACAction,
+    ClimateEntityFeature,
+)
+from homeassistant.const import UnitOfTemperature
 from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import device_registry as dr
 
@@ -40,46 +45,36 @@ async def assign_device_to_area(hass, device_identifier, location):
     )
 
     if device and device.area_id != area.id:
-        device_registry.async_update_device(device.id, area_id=area.id)
-        _LOGGER.warning("BuildTrack device assigned to area: %s", location)
+        device_registry.async_update_device(
+            device.id,
+            area_id=area.id,
+        )
+
+        _LOGGER.warning(
+            "BuildTrack climate device assigned to area %s",
+            location,
+        )
 
 
 async def async_setup_entry(hass, entry, async_add_entities, discovery_info=None):
+    """Set up BuildTrack Climate platform."""
     data = hass.data[DOMAIN][entry.entry_id]
-
     devices = data["devices"]
     api = data["api"]
 
-    lights = []
-
-    _LOGGER.warning("BUILTRACK LIGHT SETUP START | total devices=%s", len(devices))
+    climates = []
 
     for device in devices:
-        device_types = device.get("type", [])
+        if "THERMOSTAT" in device.get("type", []):
+            climates.append(BuildTrackClimate(hass, api, device))
 
-        _LOGGER.warning(
-            "BUILTRACK DEVICE CHECK | name=%s | id=%s | key=%s | type=%s",
-            device.get("entityName"),
-            device.get("entityId"),
-            device.get("entityKey"),
-            device_types,
-        )
-
-        if "LIGHT DIMMER" in device_types:
-            lights.append(BuildTrackDimmer(hass, api, device))
-            _LOGGER.warning("BUILTRACK DIMMER ADDED | %s", device.get("entityName"))
-
-        elif "LIGHT" in device_types:
-            lights.append(BuildTrackLight(hass, api, device))
-            _LOGGER.warning("BUILTRACK LIGHT ADDED | %s", device.get("entityName"))
-
-    _LOGGER.warning("BUILTRACK LIGHT SETUP COMPLETE | total added=%s", len(lights))
-
-    async_add_entities(lights)
+    async_add_entities(climates)
 
 
-class BuildTrackLight(LightEntity):
-    should_poll = False
+class BuildTrackClimate(ClimateEntity):
+    """BuildTrack Thermostat Entity."""
+
+    should_poll = True
 
     def __init__(self, hass, api, device):
         self._hass = hass
@@ -92,17 +87,29 @@ class BuildTrackLight(LightEntity):
         self._attr_name = device.get("entityName")
         self._attr_unique_id = self._entity_id
 
-        self._attr_supported_color_modes = {ColorMode.ONOFF}
-        self._attr_color_mode = ColorMode.ONOFF
+        self._temp_task = None
 
-        self._is_on = False
-        self._last_local_change = None
+        self._attr_temperature_unit = UnitOfTemperature.CELSIUS
+        self._attr_current_temperature = 24
+        self._attr_target_temperature = 26
+        self._attr_min_temp = 18
+        self._attr_max_temp = 32
+        self._attr_target_temperature_step = 1
 
-        _LOGGER.warning(
-            "BUILTRACK LIGHT INIT | name=%s | id=%s | key=%s",
-            self._attr_name,
-            self._entity_id,
-            self._entity_key,
+        self._attr_hvac_modes = [
+            HVACMode.COOL,
+            HVACMode.HEAT,
+            HVACMode.OFF,
+        ]
+        self._attr_hvac_mode = HVACMode.OFF
+        self._attr_hvac_action = HVACAction.OFF
+
+        self._attr_fan_modes = ["low", "medium", "high"]
+        self._attr_fan_mode = "low"
+
+        self._attr_supported_features = (
+            ClimateEntityFeature.TARGET_TEMPERATURE
+            | ClimateEntityFeature.FAN_MODE
         )
 
     @property
@@ -119,309 +126,167 @@ class BuildTrackLight(LightEntity):
         return get_location(self._device)
 
     async def async_added_to_hass(self):
-        _LOGGER.warning("BUILTRACK LIGHT ADDED TO HASS | %s", self._attr_name)
-
         location = get_location(self._device)
 
         if location:
-            await assign_device_to_area(self._hass, self._entity_id, location)
-
-    @property
-    def is_on(self):
-        return self._is_on
-
-    @property
-    def available(self):
-        return True
-
-    async def async_turn_on(self, **kwargs):
-        _LOGGER.warning("BUILTRACK LIGHT TURN ON CLICK | %s", self._attr_name)
-        self._set_local_state("on", True)
-
-    async def async_turn_off(self, **kwargs):
-        _LOGGER.warning("BUILTRACK LIGHT TURN OFF CLICK | %s", self._attr_name)
-        self._set_local_state("off", False)
-
-    def _set_local_state(self, state: str, is_on: bool):
-        old_state = self._is_on
-
-        self._is_on = is_on
-        self._last_local_change = datetime.now()
-        self.async_write_ha_state()
-
-        _LOGGER.warning(
-            "BUILTRACK LIGHT LOCAL STATE WRITE | %s | state=%s | is_on=%s",
-            self._attr_name,
-            state,
-            self._is_on,
-        )
-
-        self._hass.async_create_task(self._send_power_to_api(state, old_state))
-
-    async def _send_power_to_api(self, state: str, old_state: bool):
-        payload = {
-            "entityId": self._entity_id,
-            "entityKey": self._entity_key,
-            "state": state,
-        }
-
-        _LOGGER.warning(
-            "BUILTRACK LIGHT CONTROL API CALL | %s | payload=%s",
-            self._attr_name,
-            payload,
-        )
-
-        response = await self._api.call(
-            endpoint=f"/controlDevice/{self._entity_id}",
-            method="POST",
-            payload=payload,
-        )
-
-        _LOGGER.warning(
-            "BUILTRACK LIGHT CONTROL API RESPONSE | %s | response=%s",
-            self._attr_name,
-            response,
-        )
-
-        if response is None:
-            self._is_on = old_state
-            self.async_write_ha_state()
-
-            _LOGGER.warning(
-                "BUILTRACK LIGHT API FAILED ROLLBACK | %s | old_state=%s",
-                self._attr_name,
-                old_state,
+            await assign_device_to_area(
+                self._hass,
+                self._entity_id,
+                location,
             )
 
-    async def async_update(self):
-        _LOGGER.warning(
-            "BUILTRACK LIGHT async_update CALLED | %s | id=%s",
-            self._attr_name,
-            self._entity_id,
-        )
+        await self.async_update()
+
+    async def _control_device(self, state, speed=None):
+        if speed is None:
+            speed = self._attr_fan_mode or ""
 
         payload = {
-            "entityId": self._entity_id,
-            "entityKey": self._entity_key,
+            "entityKey": self._entity_key or "",
+            "state": state or "",
+            "speed": speed or "",
         }
 
         _LOGGER.warning(
-            "BUILTRACK LIGHT READ API CALL | %s | payload=%s",
+            "BUILTRACK CLIMATE CONTROL API CALL | %s | endpoint=%s | payload=%s",
             self._attr_name,
+            f"/controlDevice/{self._entity_id}",
             payload,
         )
 
-        data = await self._api.call(
-            endpoint="/readDeviceData",
-            method="POST",
-            payload=payload,
-        )
+        try:
+            response = await self._api.call(
+                endpoint=f"/controlDevice/{self._entity_id}",
+                method="POST",
+                payload=payload,
+            )
 
-        _LOGGER.warning(
-            "BUILTRACK LIGHT READ API RESPONSE | %s | raw=%s | type=%s",
-            self._attr_name,
-            data,
-            type(data),
-        )
+            _LOGGER.warning(
+                "BUILTRACK CLIMATE CONTROL API RESPONSE | %s | raw=%s | type=%s",
+                self._attr_name,
+                response,
+                type(response),
+            )
 
-        if not data:
-            _LOGGER.warning("BUILTRACK LIGHT READ EMPTY RESPONSE | %s", self._attr_name)
+            return response
+
+        except Exception as err:
+            _LOGGER.exception(
+                "BUILTRACK CLIMATE CONTROL API ERROR | %s | payload=%s | error=%s",
+                self._attr_name,
+                payload,
+                err,
+            )
+            return None
+
+    async def async_set_temperature(self, **kwargs):
+        temperature = kwargs.get("temperature")
+
+        if temperature is None:
             return
 
-        state = str(
-            data.get("state")
-            or data.get("status")
-            or data.get("power")
-            or data.get("switch")
-            or data.get("value")
-            or ""
-        ).strip().lower()
+        self._attr_target_temperature = temperature
+        self.async_write_ha_state()
 
-        _LOGGER.warning(
-            "BUILTRACK LIGHT PARSED STATE | %s | parsed_state=%s",
-            self._attr_name,
-            state,
+        if self._temp_task:
+            self._temp_task.cancel()
+
+        self._temp_task = self._hass.async_create_task(
+            self._delayed_temperature_call(temperature)
         )
 
-        if state in ["on", "1", "true", "yes", "open"]:
-            self._is_on = True
+    async def _delayed_temperature_call(self, temperature):
+        try:
+            await asyncio.sleep(0.5)
 
-        elif state in ["off", "0", "false", "no", "close", "closed"]:
-            self._is_on = False
+            payload = {
+                "entityKey": self._entity_key or "",
+                "temperature": temperature,
+            }
+
+            _LOGGER.warning(
+                "BUILTRACK CLIMATE TEMP API CALL | %s | payload=%s",
+                self._attr_name,
+                payload,
+            )
+
+            response = await self._api.call(
+                endpoint=f"/setTemperature/{self._entity_id}",
+                method="POST",
+                payload=payload,
+            )
+
+            _LOGGER.warning(
+                "BUILTRACK CLIMATE TEMP API RESPONSE | %s | raw=%s | type=%s",
+                self._attr_name,
+                response,
+                type(response),
+            )
+
+            await self.async_update()
+
+        except asyncio.CancelledError:
+            pass
+
+        except Exception as err:
+            _LOGGER.exception(
+                "BUILTRACK CLIMATE TEMP API ERROR | %s | error=%s",
+                self._attr_name,
+                err,
+            )
+
+    async def async_set_hvac_mode(self, hvac_mode):
+        _LOGGER.warning(
+            "BUILTRACK CLIMATE HVAC MODE CHANGE REQUEST | %s | mode=%s",
+            self._attr_name,
+            hvac_mode,
+        )
+
+        if hvac_mode == HVACMode.OFF:
+            await self._control_device("off", self._attr_fan_mode)
+
+            self._attr_hvac_mode = HVACMode.OFF
+            self._attr_hvac_action = HVACAction.OFF
 
         else:
+            await self._control_device("on", self._attr_fan_mode)
+
+            self._attr_hvac_mode = hvac_mode
+
+            if hvac_mode == HVACMode.HEAT:
+                self._attr_hvac_action = HVACAction.HEATING
+            else:
+                self._attr_hvac_action = HVACAction.COOLING
+
+        self.async_write_ha_state()
+        await self.async_update()
+
+    async def async_set_fan_mode(self, fan_mode):
+        if fan_mode not in self._attr_fan_modes:
             _LOGGER.warning(
-                "BUILTRACK LIGHT UNKNOWN STATE FORMAT | %s | data=%s",
+                "BUILTRACK CLIMATE INVALID FAN MODE | %s | fan_mode=%s",
                 self._attr_name,
-                data,
+                fan_mode,
             )
             return
 
+        _LOGGER.warning(
+            "BUILTRACK CLIMATE FAN MODE CHANGE REQUEST | %s | fan_mode=%s",
+            self._attr_name,
+            fan_mode,
+        )
+
+        self._attr_fan_mode = fan_mode
+
+        if self._attr_hvac_mode != HVACMode.OFF:
+            await self._control_device("on", fan_mode)
+
         self.async_write_ha_state()
-
-        _LOGGER.warning(
-            "BUILTRACK LIGHT FINAL HA STATE WRITE | %s | is_on=%s",
-            self._attr_name,
-            self._is_on,
-        )
-
-
-class BuildTrackDimmer(LightEntity, RestoreEntity):
-    should_poll = False
-
-    def __init__(self, hass, api, device):
-        self._hass = hass
-        self._api = api
-        self._device = device
-
-        self._entity_id = device.get("entityId")
-        self._entity_key = device.get("entityKey")
-
-        self._attr_name = device.get("entityName")
-        self._attr_unique_id = self._entity_id
-
-        self._attr_supported_color_modes = {ColorMode.BRIGHTNESS}
-        self._attr_color_mode = ColorMode.BRIGHTNESS
-
-        self._is_on = False
-        self._brightness = 255
-        self._last_local_change = None
-
-        _LOGGER.warning(
-            "BUILTRACK DIMMER INIT | name=%s | id=%s | key=%s",
-            self._attr_name,
-            self._entity_id,
-            self._entity_key,
-        )
-
-    @property
-    def device_info(self):
-        return {
-            "identifiers": {(DOMAIN, self._entity_id)},
-            "name": self._attr_name,
-            "manufacturer": self._device.get("manufacturer", "BuildTrack"),
-            "model": ", ".join(self._device.get("type", [])),
-        }
-
-    @property
-    def suggested_area(self):
-        return get_location(self._device)
-
-    async def async_added_to_hass(self):
-        await super().async_added_to_hass()
-
-        _LOGGER.warning("BUILTRACK DIMMER ADDED TO HASS | %s", self._attr_name)
-
-        last_state = await self.async_get_last_state()
-
-        if last_state:
-            self._is_on = last_state.state == "on"
-
-            brightness = last_state.attributes.get("brightness")
-            if brightness is not None:
-                self._brightness = brightness
-
-            if self._brightness is None:
-                self._brightness = 255
-
-            _LOGGER.warning(
-                "BUILTRACK DIMMER RESTORED STATE | %s | is_on=%s | brightness=%s",
-                self._attr_name,
-                self._is_on,
-                self._brightness,
-            )
-
-        location = get_location(self._device)
-
-        if location:
-            await assign_device_to_area(self._hass, self._entity_id, location)
-
-    @property
-    def is_on(self):
-        return self._is_on
-
-    @property
-    def brightness(self):
-        return self._brightness
-
-    @property
-    def available(self):
-        return True
-
-    async def async_turn_on(self, **kwargs):
-        brightness = kwargs.get("brightness")
-
-        _LOGGER.warning(
-            "BUILTRACK DIMMER TURN ON CLICK | %s | input_brightness=%s",
-            self._attr_name,
-            brightness,
-        )
-
-        if brightness is not None:
-            self._brightness = brightness
-
-        if self._brightness is None or self._brightness <= 0:
-            self._brightness = 255
-
-        brightness_percent = int((self._brightness / 255) * 100)
-
-        self._is_on = True
-        self._last_local_change = datetime.now()
-        self.async_write_ha_state()
-
-        payload = {
-            "entityId": self._entity_id,
-            "entityKey": self._entity_key,
-            "state": "on",
-            "speed": brightness_percent,
-        }
-
-        _LOGGER.warning(
-            "BUILTRACK DIMMER CONTROL API CALL | %s | payload=%s",
-            self._attr_name,
-            payload,
-        )
-
-        self._hass.async_create_task(
-            self._api.call(
-                endpoint=f"/controlDevice/{self._entity_id}",
-                method="POST",
-                payload=payload,
-            )
-        )
-
-    async def async_turn_off(self, **kwargs):
-        _LOGGER.warning("BUILTRACK DIMMER TURN OFF CLICK | %s", self._attr_name)
-
-        self._is_on = False
-        self._brightness = 0
-        self._last_local_change = datetime.now()
-        self.async_write_ha_state()
-
-        payload = {
-            "entityId": self._entity_id,
-            "entityKey": self._entity_key,
-            "state": "off",
-            "speed": 0,
-        }
-
-        _LOGGER.warning(
-            "BUILTRACK DIMMER CONTROL API CALL | %s | payload=%s",
-            self._attr_name,
-            payload,
-        )
-
-        self._hass.async_create_task(
-            self._api.call(
-                endpoint=f"/controlDevice/{self._entity_id}",
-                method="POST",
-                payload=payload,
-            )
-        )
+        await self.async_update()
 
     async def async_update(self):
         _LOGGER.warning(
-            "BUILTRACK DIMMER async_update CALLED | %s | id=%s",
+            "BUILTRACK CLIMATE async_update CALLED | %s | id=%s",
             self._attr_name,
             self._entity_id,
         )
@@ -432,26 +297,36 @@ class BuildTrackDimmer(LightEntity, RestoreEntity):
         }
 
         _LOGGER.warning(
-            "BUILTRACK DIMMER READ API CALL | %s | payload=%s",
+            "BUILTRACK CLIMATE READ API CALL | %s | payload=%s",
             self._attr_name,
             payload,
         )
 
-        data = await self._api.call(
-            endpoint="/readDeviceData",
-            method="POST",
-            payload=payload,
-        )
+        try:
+            data = await self._api.call(
+                endpoint="/readDeviceData",
+                method="POST",
+                payload=payload,
+            )
 
-        _LOGGER.warning(
-            "BUILTRACK DIMMER READ API RESPONSE | %s | raw=%s | type=%s",
-            self._attr_name,
-            data,
-            type(data),
-        )
+            _LOGGER.warning(
+                "BUILTRACK CLIMATE READ API RESPONSE | %s | raw=%s | type=%s",
+                self._attr_name,
+                data,
+                type(data),
+            )
+
+        except Exception as err:
+            _LOGGER.exception(
+                "BUILTRACK CLIMATE READ API ERROR | %s | payload=%s | error=%s",
+                self._attr_name,
+                payload,
+                err,
+            )
+            return
 
         if not data:
-            _LOGGER.warning("BUILTRACK DIMMER READ EMPTY RESPONSE | %s", self._attr_name)
+            _LOGGER.warning("BUILTRACK CLIMATE READ EMPTY RESPONSE | %s", self._attr_name)
             return
 
         state = str(
@@ -465,72 +340,116 @@ class BuildTrackDimmer(LightEntity, RestoreEntity):
 
         speed = (
             data.get("speed")
-            or data.get("brightness")
+            or data.get("fanSpeed")
+            or data.get("fan_speed")
             or data.get("level")
-            or data.get("dim")
+        )
+
+        temperature = (
+            data.get("temperature")
+            or data.get("targetTemperature")
+            or data.get("target_temperature")
+            or data.get("temp")
+        )
+
+        current_temperature = (
+            data.get("currentTemperature")
+            or data.get("current_temperature")
+            or data.get("roomTemperature")
+            or data.get("room_temperature")
         )
 
         _LOGGER.warning(
-            "BUILTRACK DIMMER PARSED DATA | %s | state=%s | speed=%s",
+            "BUILTRACK CLIMATE PARSED DATA | %s | state=%s | speed=%s | target_temp=%s | current_temp=%s",
             self._attr_name,
             state,
             speed,
+            temperature,
+            current_temperature,
         )
 
-        if speed is not None:
-            try:
-                speed_int = int(float(speed))
-                speed_int = max(0, min(speed_int, 100))
-
-                self._brightness = int((speed_int / 100) * 255)
-
-                if speed_int > 0:
-                    self._is_on = True
-                else:
-                    self._is_on = False
-
-                _LOGGER.warning(
-                    "BUILTRACK DIMMER SPEED UPDATED | %s | speed=%s | brightness=%s | is_on=%s",
-                    self._attr_name,
-                    speed_int,
-                    self._brightness,
-                    self._is_on,
-                )
-
-            except Exception as err:
-                _LOGGER.warning(
-                    "BUILTRACK DIMMER SPEED PARSE ERROR | %s | speed=%s | error=%s",
-                    self._attr_name,
-                    speed,
-                    err,
-                )
-
         if state in ["on", "1", "true", "yes", "open"]:
-            self._is_on = True
+            if self._attr_hvac_mode == HVACMode.OFF:
+                self._attr_hvac_mode = HVACMode.COOL
 
-            if self._brightness is None or self._brightness <= 0:
-                self._brightness = 255
+            if self._attr_hvac_mode == HVACMode.HEAT:
+                self._attr_hvac_action = HVACAction.HEATING
+            else:
+                self._attr_hvac_action = HVACAction.COOLING
 
         elif state in ["off", "0", "false", "no", "close", "closed"]:
-            self._is_on = False
-            self._brightness = 0
+            self._attr_hvac_mode = HVACMode.OFF
+            self._attr_hvac_action = HVACAction.OFF
 
-        elif not state and speed is None:
+        elif not state and speed is None and temperature is None and current_temperature is None:
             _LOGGER.warning(
-                "BUILTRACK DIMMER UNKNOWN RESPONSE FORMAT | %s | data=%s",
+                "BUILTRACK CLIMATE UNKNOWN RESPONSE FORMAT | %s | data=%s",
                 self._attr_name,
                 data,
             )
             return
 
-        if self._brightness is None:
-            self._brightness = 255 if self._is_on else 0
+        if speed is not None:
+            speed_str = str(speed).strip().lower()
+
+            if speed_str in ["low", "medium", "high"]:
+                self._attr_fan_mode = speed_str
+            else:
+                try:
+                    speed_int = int(float(speed))
+
+                    if speed_int <= 33:
+                        self._attr_fan_mode = "low"
+                    elif speed_int <= 66:
+                        self._attr_fan_mode = "medium"
+                    else:
+                        self._attr_fan_mode = "high"
+
+                    _LOGGER.warning(
+                        "BUILTRACK CLIMATE SPEED UPDATED | %s | speed=%s | fan_mode=%s",
+                        self._attr_name,
+                        speed_int,
+                        self._attr_fan_mode,
+                    )
+
+                except Exception as err:
+                    _LOGGER.warning(
+                        "BUILTRACK CLIMATE SPEED PARSE ERROR | %s | speed=%s | error=%s",
+                        self._attr_name,
+                        speed,
+                        err,
+                    )
+
+        if temperature is not None:
+            try:
+                self._attr_target_temperature = float(temperature)
+            except Exception as err:
+                _LOGGER.warning(
+                    "BUILTRACK CLIMATE TARGET TEMP PARSE ERROR | %s | temp=%s | error=%s",
+                    self._attr_name,
+                    temperature,
+                    err,
+                )
+
+        if current_temperature is not None:
+            try:
+                self._attr_current_temperature = float(current_temperature)
+            except Exception as err:
+                _LOGGER.warning(
+                    "BUILTRACK CLIMATE CURRENT TEMP PARSE ERROR | %s | current_temp=%s | error=%s",
+                    self._attr_name,
+                    current_temperature,
+                    err,
+                )
 
         self.async_write_ha_state()
 
         _LOGGER.warning(
-            "BUILTRACK DIMMER FINAL HA STATE WRITE | %s | is_on=%s | brightness=%s",
+            "BUILTRACK CLIMATE FINAL HA STATE WRITE | %s | hvac_mode=%s | hvac_action=%s | fan=%s | target_temp=%s | current_temp=%s",
             self._attr_name,
-            self._is_on,
-            self._brightness,
+            self._attr_hvac_mode,
+            self._attr_hvac_action,
+            self._attr_fan_mode,
+            self._attr_target_temperature,
+            self._attr_current_temperature,
         )
