@@ -27,7 +27,6 @@ def get_location(device):
 
 async def ensure_area(hass, location):
     area_registry = ar.async_get(hass)
-
     area = area_registry.async_get_area_by_name(location)
 
     if area is None:
@@ -60,7 +59,6 @@ async def assign_device_to_area(hass, device_identifier, location):
 
 
 async def async_setup_entry(hass, entry, async_add_entities, discovery_info=None):
-    """Set up BuildTrack Climate platform."""
     data = hass.data[DOMAIN][entry.entry_id]
     devices = data["devices"]
     api = data["api"]
@@ -75,8 +73,6 @@ async def async_setup_entry(hass, entry, async_add_entities, discovery_info=None
 
 
 class BuildTrackClimate(ClimateEntity):
-    """BuildTrack Thermostat Entity."""
-
     should_poll = False
 
     def __init__(self, hass, api, device):
@@ -138,15 +134,47 @@ class BuildTrackClimate(ClimateEntity):
                 location,
             )
 
+    async def _control_device(self, state, speed=None):
+        if speed is None:
+            speed = self._attr_fan_mode or ""
+
+        payload = {
+            "entityKey": self._entity_key or "",
+            "state": state or "",
+            "speed": speed or "",
+        }
+
+        try:
+            response = await self._api.call(
+                endpoint=f"/controlDevice/{self._entity_id}",
+                method="POST",
+                payload=payload,
+            )
+
+            _LOGGER.warning(
+                "CLIMATE CONTROL API RESPONSE | name=%s | entity_id=%s | payload=%s | response=%s",
+                self._attr_name,
+                self._entity_id,
+                payload,
+                response,
+            )
+
+            return response
+
+        except Exception as err:
+            _LOGGER.exception(
+                "CLIMATE CONTROL API ERROR | name=%s | entity_id=%s | payload=%s | error=%s",
+                self._attr_name,
+                self._entity_id,
+                payload,
+                err,
+            )
+            return None
+
     async def async_set_temperature(self, **kwargs):
-        """Handle temperature change from UI."""
         temperature = kwargs.get("temperature")
 
         if temperature is None:
-            _LOGGER.warning(
-                "Temperature not provided | Entity: %s",
-                self.entity_id,
-            )
             return
 
         self._attr_target_temperature = temperature
@@ -155,12 +183,11 @@ class BuildTrackClimate(ClimateEntity):
         if self._temp_task:
             self._temp_task.cancel()
 
-        self._temp_task = asyncio.create_task(
+        self._temp_task = self._hass.async_create_task(
             self._delayed_temperature_call(temperature)
         )
 
     async def _delayed_temperature_call(self, temperature):
-        """Delay API call to avoid rapid requests."""
         try:
             await asyncio.sleep(0.5)
 
@@ -168,51 +195,44 @@ class BuildTrackClimate(ClimateEntity):
                 endpoint=f"/setTemperature/{self._entity_id}",
                 method="POST",
                 payload={
-                    "entityId": self._entity_id,
-                    "entityKey": self._entity_key,
+                    "entityKey": self._entity_key or "",
                     "temperature": temperature,
                 },
             )
 
-            _LOGGER.warning("Temperature RAW API RESPONSE: %s", response)
+            _LOGGER.warning(
+                "TEMPERATURE API RESPONSE | name=%s | temp=%s | response=%s",
+                self._attr_name,
+                temperature,
+                response,
+            )
 
         except asyncio.CancelledError:
             pass
 
         except Exception as err:
             _LOGGER.exception(
-                "ERROR: Exception while setting temperature | Entity: %s | Error: %s",
-                self.entity_id,
+                "TEMPERATURE API ERROR | name=%s | error=%s",
+                self._attr_name,
                 err,
             )
 
     async def async_set_hvac_mode(self, hvac_mode):
-        """Set HVAC mode."""
-
-        if hvac_mode not in self._attr_hvac_modes:
-            return
-
-        command_map = {
-            HVACMode.COOL: "COOL",
-            HVACMode.HEAT: "HEAT",
-            HVACMode.OFF: "OFF",
-        }
-
-        command = command_map.get(hvac_mode)
-
-        response = await self._api.call(
-            endpoint=f"/controlDevice/{self._entity_id}",
-            method="POST",
-            payload={
-                "entityId": self._entity_id,
-                "entityKey": self._entity_key,
-                "state": command,
-            },
+        _LOGGER.warning(
+            "HVAC MODE CHANGE REQUEST | name=%s | mode=%s",
+            self._attr_name,
+            hvac_mode,
         )
 
-        _LOGGER.warning("HVAC RAW RESPONSE: %s", response)
+        if hvac_mode == HVACMode.OFF:
+            await self._control_device("off")
 
-        if response:
+            self._attr_hvac_mode = HVACMode.OFF
+            self._attr_hvac_action = HVACAction.OFF
+
+        else:
+            await self._control_device("on")
+
             self._attr_hvac_mode = hvac_mode
 
             if hvac_mode == HVACMode.COOL:
@@ -220,84 +240,26 @@ class BuildTrackClimate(ClimateEntity):
             elif hvac_mode == HVACMode.HEAT:
                 self._attr_hvac_action = HVACAction.HEATING
             else:
-                self._attr_hvac_action = HVACAction.OFF
+                self._attr_hvac_action = HVACAction.IDLE
 
-            self.async_write_ha_state()
+        self.async_write_ha_state()
 
     async def async_set_fan_mode(self, fan_mode):
-        """Set fan mode."""
-
         if fan_mode not in self._attr_fan_modes:
             return
 
-        fan_command_map = {
-            "low": "FAN_LOW",
-            "medium": "FAN_MEDIUM",
-            "high": "FAN_HIGH",
-        }
-
-        command = fan_command_map.get(fan_mode)
-
-        response = await self._api.call(
-            endpoint=f"/controlDevice/{self._entity_id}",
-            method="POST",
-            payload={
-                "entityId": self._entity_id,
-                "entityKey": self._entity_key,
-                "state": command,
-                "speed": self._attr_target_temperature,
-            },
+        _LOGGER.warning(
+            "FAN MODE CHANGE REQUEST | name=%s | fan_mode=%s",
+            self._attr_name,
+            fan_mode,
         )
 
-        _LOGGER.warning("FAN RAW RESPONSE: %s", response)
+        self._attr_fan_mode = fan_mode
 
-        if response:
-            self._attr_fan_mode = fan_mode
-            self.async_write_ha_state()
+        if self._attr_hvac_mode != HVACMode.OFF:
+            await self._control_device("on", fan_mode)
+
+        self.async_write_ha_state()
 
     async def async_update(self):
-        """Manual thermostat update from BuildTrack."""
-
-        data = await self._api.call(
-            endpoint="/readDeviceData",
-            method="POST",
-            payload={
-                "entityId": self._entity_id,
-                "entityKey": self._entity_key,
-            },
-        )
-
-        _LOGGER.warning(
-            "Realtime Climate Data | %s | %s",
-            self._attr_name,
-            data,
-        )
-
-        if not data:
-            return
-
-        temperature = data.get("temperature")
-        current_temperature = data.get("currentTemperature")
-        state = str(data.get("state", "")).upper()
-        fan_speed = str(data.get("fanSpeed", "")).lower()
-
-        if temperature is not None:
-            self._attr_target_temperature = float(temperature)
-
-        if current_temperature is not None:
-            self._attr_current_temperature = float(current_temperature)
-
-        if state == "COOL":
-            self._attr_hvac_mode = HVACMode.COOL
-            self._attr_hvac_action = HVACAction.COOLING
-        elif state == "HEAT":
-            self._attr_hvac_mode = HVACMode.HEAT
-            self._attr_hvac_action = HVACAction.HEATING
-        elif state == "OFF":
-            self._attr_hvac_mode = HVACMode.OFF
-            self._attr_hvac_action = HVACAction.OFF
-
-        if fan_speed in self._attr_fan_modes:
-            self._attr_fan_mode = fan_speed
-
         self.async_write_ha_state()
