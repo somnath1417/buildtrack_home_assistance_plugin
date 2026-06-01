@@ -467,22 +467,11 @@ class BuildTrackDimmer(LightEntity, RestoreEntity):
             )
 
     async def async_update(self):
-        _LOGGER.warning(
-            "BUILTRACK DIMMER async_update CALLED | %s | id=%s",
-            self._attr_name,
-            self._entity_id,
-        )
 
         payload = {
             "entityId": self._entity_id,
             "entityKey": self._entity_key,
         }
-
-        _LOGGER.warning(
-            "BUILTRACK DIMMER READ API CALL | %s | payload=%s",
-            self._attr_name,
-            payload,
-        )
 
         try:
             data = await self._api.call(
@@ -497,13 +486,6 @@ class BuildTrackDimmer(LightEntity, RestoreEntity):
                 err,
             )
             return
-
-        _LOGGER.warning(
-            "BUILTRACK DIMMER READ API RESPONSE | %s | raw=%s | type=%s",
-            self._attr_name,
-            data,
-            type(data),
-        )
 
         if not data:
             _LOGGER.warning("BUILTRACK DIMMER READ EMPTY RESPONSE | %s", self._attr_name)
@@ -536,13 +518,6 @@ class BuildTrackDimmer(LightEntity, RestoreEntity):
             or data.get("dim")
         )
 
-        _LOGGER.warning(
-            "BUILTRACK DIMMER PARSED DATA | %s | state=%s | speed=%s",
-            self._attr_name,
-            state,
-            speed,
-        )
-
         if speed is not None:
             try:
                 speed_int = int(float(speed))
@@ -550,14 +525,6 @@ class BuildTrackDimmer(LightEntity, RestoreEntity):
 
                 self._brightness = int((speed_int / 100) * 255)
                 self._is_on = speed_int > 0
-
-                _LOGGER.warning(
-                    "BUILTRACK DIMMER SPEED UPDATED | %s | speed=%s | brightness=%s | is_on=%s",
-                    self._attr_name,
-                    speed_int,
-                    self._brightness,
-                    self._is_on,
-                )
 
             except Exception as err:
                 _LOGGER.warning(
@@ -590,9 +557,3 @@ class BuildTrackDimmer(LightEntity, RestoreEntity):
 
         self.async_write_ha_state()
 
-        _LOGGER.warning(
-            "BUILTRACK DIMMER FINAL HA STATE WRITE | %s | is_on=%s | brightness=%s",
-            self._attr_name,
-            self._is_on,
-            self._brightness,
-        )
