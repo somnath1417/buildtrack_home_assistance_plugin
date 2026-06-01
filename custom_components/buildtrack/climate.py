@@ -25,6 +25,21 @@ def get_location(device):
     return None
 
 
+def fahrenheit_to_celsius(value):
+    try:
+        temp = float(value)
+
+        # If API returns Fahrenheit like 70, 75, 80 convert to Celsius.
+        # Normal AC Celsius values are usually below 45.
+        if temp > 45:
+            return round((temp - 32) * 5 / 9, 1)
+
+        return temp
+
+    except Exception:
+        return None
+
+
 async def ensure_area(hass, location):
     area_registry = ar.async_get(hass)
     area = area_registry.async_get_area_by_name(location)
@@ -98,10 +113,12 @@ async def async_setup_entry(hass, entry, async_add_entities, discovery_info=None
         len(climates),
     )
 
+    # Do not call readDeviceData on load
     async_add_entities(climates)
 
 
 class BuildTrackClimate(ClimateEntity):
+    # Manual refresh only
     should_poll = False
 
     def __init__(self, hass, api, device):
@@ -118,9 +135,9 @@ class BuildTrackClimate(ClimateEntity):
         self._temp_task = None
 
         self._attr_temperature_unit = UnitOfTemperature.CELSIUS
-        self._attr_current_temperature = 24
-        self._attr_target_temperature = 26
-        self._attr_min_temp = 18
+        self._attr_current_temperature = None
+        self._attr_target_temperature = 24
+        self._attr_min_temp = 16
         self._attr_max_temp = 32
         self._attr_target_temperature_step = 1
 
@@ -182,9 +199,9 @@ class BuildTrackClimate(ClimateEntity):
 
         payload = {
             "entityId": self._entity_id,
-            "entityKey": self._entity_key or "",
-            "state": state or "",
-            "speed": speed or "",
+            "entityKey": self._entity_key,
+            "state": state,
+            "speed": speed,
         }
 
         _LOGGER.warning(
@@ -239,7 +256,7 @@ class BuildTrackClimate(ClimateEntity):
 
             payload = {
                 "entityId": self._entity_id,
-                "entityKey": self._entity_key or "",
+                "entityKey": self._entity_key,
                 "temperature": temperature,
             }
 
@@ -277,7 +294,6 @@ class BuildTrackClimate(ClimateEntity):
             await self._control_device("off")
             self._attr_hvac_mode = HVACMode.OFF
             self._attr_hvac_action = HVACAction.OFF
-
         else:
             await self._control_device("on")
             self._attr_hvac_mode = hvac_mode
@@ -292,12 +308,6 @@ class BuildTrackClimate(ClimateEntity):
     async def async_set_fan_mode(self, fan_mode):
         if fan_mode not in self._attr_fan_modes:
             return
-
-        _LOGGER.warning(
-            "BUILTRACK CLIMATE FAN MODE CHANGE REQUEST | name=%s | fan_mode=%s",
-            self._attr_name,
-            fan_mode,
-        )
 
         self._attr_fan_mode = fan_mode
 
@@ -404,7 +414,7 @@ class BuildTrackClimate(ClimateEntity):
         )
 
         _LOGGER.warning(
-            "BUILTRACK CLIMATE PARSED DATA | name=%s | state=%s | speed=%s | target_temp=%s | current_temp=%s",
+            "BUILTRACK CLIMATE PARSED DATA BEFORE CONVERT | name=%s | state=%s | speed=%s | target_temp=%s | current_temp=%s",
             self._attr_name,
             state,
             speed,
@@ -459,31 +469,21 @@ class BuildTrackClimate(ClimateEntity):
                     )
 
         if target_temp is not None:
-            try:
-                self._attr_target_temperature = float(target_temp)
-            except Exception as err:
-                _LOGGER.warning(
-                    "BUILTRACK CLIMATE TARGET TEMP PARSE ERROR | name=%s | temp=%s | error=%s",
-                    self._attr_name,
-                    target_temp,
-                    err,
-                )
+            converted_target_temp = fahrenheit_to_celsius(target_temp)
+
+            if converted_target_temp is not None:
+                self._attr_target_temperature = converted_target_temp
 
         if current_temp is not None:
-            try:
-                self._attr_current_temperature = float(current_temp)
-            except Exception as err:
-                _LOGGER.warning(
-                    "BUILTRACK CLIMATE CURRENT TEMP PARSE ERROR | name=%s | temp=%s | error=%s",
-                    self._attr_name,
-                    current_temp,
-                    err,
-                )
+            converted_current_temp = fahrenheit_to_celsius(current_temp)
+
+            if converted_current_temp is not None:
+                self._attr_current_temperature = converted_current_temp
 
         self.async_write_ha_state()
 
         _LOGGER.warning(
-            "BUILTRACK CLIMATE FINAL HA STATE WRITE | name=%s | hvac_mode=%s | hvac_action=%s | fan=%s | target_temp=%s | current_temp=%s",
+            "BUILTRACK CLIMATE FINAL HA STATE WRITE | name=%s | hvac_mode=%s | hvac_action=%s | fan=%s | target_temp_c=%s | current_temp_c=%s",
             self._attr_name,
             self._attr_hvac_mode,
             self._attr_hvac_action,
