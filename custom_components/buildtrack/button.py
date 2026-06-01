@@ -22,7 +22,6 @@ def get_location(device):
 
 async def ensure_area(hass, location):
     area_registry = ar.async_get(hass)
-
     area = area_registry.async_get_area_by_name(location)
 
     if area is None:
@@ -54,11 +53,7 @@ async def assign_device_to_area(hass, device_identifier, location):
         )
 
 
-async def async_setup_entry(
-    hass,
-    entry,
-    async_add_entities,
-):
+async def async_setup_entry(hass, entry, async_add_entities):
     data = hass.data[DOMAIN][entry.entry_id]
 
     api = data["api"]
@@ -98,7 +93,6 @@ class BuildTrackRefreshButton(ButtonEntity):
         self._devices = devices
 
         safe_location = location.lower().replace(" ", "_")
-
         self._device_identifier = f"buildtrack_refresh_{safe_location}"
 
         self._attr_name = f"Sync Devices - {location}"
@@ -123,7 +117,7 @@ class BuildTrackRefreshButton(ButtonEntity):
         return {
             "location": self._location,
             "device_count": len(self._devices),
-            "action": "Refresh BuildTrack devices",
+            "action": "Refresh BuildTrack light and climate devices",
         }
 
     async def async_added_to_hass(self):
@@ -144,10 +138,20 @@ class BuildTrackRefreshButton(ButtonEntity):
             entity_key = device.get("entityKey")
 
             if not entity_id or not entity_key:
+                _LOGGER.warning(
+                    "BuildTrack refresh skipped device missing id/key | device=%s",
+                    device,
+                )
                 continue
 
             try:
-                await self._api.call(
+                _LOGGER.warning(
+                    "BuildTrack raw readDeviceData call | location=%s | entityId=%s",
+                    self._location,
+                    entity_id,
+                )
+
+                response = await self._api.call(
                     endpoint="/readDeviceData",
                     method="POST",
                     payload={
@@ -156,31 +160,46 @@ class BuildTrackRefreshButton(ButtonEntity):
                     },
                 )
 
+                _LOGGER.warning(
+                    "BuildTrack raw readDeviceData response | location=%s | entityId=%s | response=%s",
+                    self._location,
+                    entity_id,
+                    response,
+                )
+
                 await asyncio.sleep(0.2)
 
             except Exception as err:
-                _LOGGER.warning(
-                    "BuildTrack refresh failed for %s | %s",
+                _LOGGER.exception(
+                    "BuildTrack refresh failed for %s | error=%s",
                     entity_id,
                     err,
                 )
 
-        await self._update_buildtrack_light_entities()
+        await self._update_buildtrack_entities()
 
         _LOGGER.warning(
             "BuildTrack refresh completed for location %s",
             self._location,
         )
 
-    async def _update_buildtrack_light_entities(self):
+    async def _update_buildtrack_entities(self):
         entity_registry = er.async_get(self._hass)
 
         for entity in entity_registry.entities.values():
             if entity.platform != DOMAIN:
                 continue
 
-            if not entity.entity_id.startswith("light."):
+            if not (
+                entity.entity_id.startswith("light.")
+                or entity.entity_id.startswith("climate.")
+            ):
                 continue
+
+            _LOGGER.warning(
+                "BuildTrack update_entity call | %s",
+                entity.entity_id,
+            )
 
             await self._hass.services.async_call(
                 "homeassistant",
@@ -188,5 +207,5 @@ class BuildTrackRefreshButton(ButtonEntity):
                 {
                     "entity_id": entity.entity_id,
                 },
-                blocking=False,
+                blocking=True,
             )
