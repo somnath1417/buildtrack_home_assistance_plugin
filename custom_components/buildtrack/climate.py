@@ -1,6 +1,5 @@
 import asyncio
 import logging
-from datetime import timedelta
 
 from homeassistant.components.climate import ClimateEntity
 from homeassistant.components.climate.const import (
@@ -15,9 +14,6 @@ from homeassistant.helpers import device_registry as dr
 from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
-
-# Refresh BuildTrack climate state from the API every 10 seconds.
-SCAN_INTERVAL = timedelta(seconds=10)
 
 
 def get_location(device):
@@ -117,14 +113,13 @@ async def async_setup_entry(hass, entry, async_add_entities, discovery_info=None
         len(climates),
     )
 
-    # Read the latest BuildTrack state before the entities first appear in HA.
-    async_add_entities(climates, update_before_add=True)
+    # Do not call readDeviceData on load
+    async_add_entities(climates)
 
 
 class BuildTrackClimate(ClimateEntity):
-    # Allow Home Assistant to call async_update periodically so changes made
-    # from the BuildTrack application are reflected in Home Assistant.
-    should_poll = True
+    # Manual refresh only
+    should_poll = False
 
     def __init__(self, hass, api, device):
         self._hass = hass
@@ -497,27 +492,12 @@ class BuildTrackClimate(ClimateEntity):
             converted_target_temp = normalize_temperature_to_celsius(target_temp)
 
             if converted_target_temp is not None:
-                # readDeviceData returns the selected AC temperature in the
-                # `temperature` field. Update the target temperature shown on
-                # the climate card. Because the API does not return a separate
-                # room/current temperature, expose the same value there too.
                 self._attr_target_temperature = converted_target_temp
-                self._attr_current_temperature = converted_target_temp
-
-                _LOGGER.warning(
-                    "BUILTRACK CLIMATE TEMPERATURE UPDATED | "
-                    "name=%s | target_temp_c=%s | current_temp_c=%s",
-                    self._attr_name,
-                    self._attr_target_temperature,
-                    self._attr_current_temperature,
-                )
 
         if current_temp is not None:
             converted_current_temp = normalize_temperature_to_celsius(current_temp)
 
             if converted_current_temp is not None:
-                # When the API later provides a real room temperature, it
-                # overrides the fallback value assigned above.
                 self._attr_current_temperature = converted_current_temp
 
         self.async_write_ha_state()
