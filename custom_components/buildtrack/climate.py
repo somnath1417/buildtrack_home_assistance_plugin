@@ -25,16 +25,16 @@ def get_location(device):
     return None
 
 
-def normalize_temperature_to_celsius(value):
+def fahrenheit_to_celsius(value):
     try:
         temp = float(value)
 
         # If API returns Fahrenheit like 70, 75, 80 convert to Celsius.
         # Normal AC Celsius values are usually below 45.
         if temp > 45:
-            temp = (temp - 32) * 5 / 9
+            return round((temp - 32) * 5 / 9, 1)
 
-        return round(temp, 1)
+        return temp
 
     except Exception:
         return None
@@ -178,11 +178,6 @@ class BuildTrackClimate(ClimateEntity):
     def suggested_area(self):
         return get_location(self._device)
 
-    @property
-    def temperature_unit(self):
-        """Return the native temperature unit used by this device/API."""
-        return UnitOfTemperature.CELSIUS
-
     async def async_added_to_hass(self):
         _LOGGER.warning(
             "BUILTRACK CLIMATE ADDED TO HASS | %s",
@@ -245,39 +240,24 @@ class BuildTrackClimate(ClimateEntity):
         if temperature is None:
             return
 
-        # Home Assistant may send the value using the UI/user temperature unit.
-        # Normalize it before storing it and before calling the BuildTrack API.
-        temperature_c = normalize_temperature_to_celsius(temperature)
-
-        if temperature_c is None:
-            _LOGGER.warning(
-                "BUILTRACK CLIMATE INVALID TEMPERATURE | name=%s | value=%s",
-                self._attr_name,
-                temperature,
-            )
-            return
-
-        # Keep the requested value inside the AC-supported Celsius range.
-        temperature_c = max(self._attr_min_temp, min(self._attr_max_temp, temperature_c))
-
-        self._attr_target_temperature = temperature_c
+        self._attr_target_temperature = temperature
         self.async_write_ha_state()
 
         if self._temp_task:
             self._temp_task.cancel()
 
         self._temp_task = self._hass.async_create_task(
-            self._delayed_temperature_call(temperature_c)
+            self._delayed_temperature_call(temperature)
         )
 
-    async def _delayed_temperature_call(self, temperature_c):
+    async def _delayed_temperature_call(self, temperature):
         try:
             await asyncio.sleep(0.5)
 
             payload = {
                 "entityId": self._entity_id,
                 "entityKey": self._entity_key,
-                "temperature": temperature_c,
+                "temperature": temperature,
             }
 
             response = await self._api.call(
@@ -489,13 +469,13 @@ class BuildTrackClimate(ClimateEntity):
                     )
 
         if target_temp is not None:
-            converted_target_temp = normalize_temperature_to_celsius(target_temp)
+            converted_target_temp = fahrenheit_to_celsius(target_temp)
 
             if converted_target_temp is not None:
                 self._attr_target_temperature = converted_target_temp
 
         if current_temp is not None:
-            converted_current_temp = normalize_temperature_to_celsius(current_temp)
+            converted_current_temp = fahrenheit_to_celsius(current_temp)
 
             if converted_current_temp is not None:
                 self._attr_current_temperature = converted_current_temp
