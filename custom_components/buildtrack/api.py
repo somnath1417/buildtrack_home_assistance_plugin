@@ -1,31 +1,52 @@
+import asyncio
 import logging
 
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
+from .const import AUTH_TYPE_AUTH_CODE, AUTH_TYPE_CLIENT_CRED, SCOPE
+
 _LOGGER = logging.getLogger(__name__)
 
+
+class BuildTrackAuthError(Exception):
+    """Raised when BuildTrack authentication cannot be recovered."""
+
+
+class BuildTrackConnectionError(Exception):
+    """Raised when BuildTrack cannot be reached."""
+
+
+# --------------------------------------------------------
+# Common API call function
+# --------------------------------------------------------
 
 class BuildTrackAPI:
     def __init__(
         self,
         hass,
         api_url,
+        auth_url,
+        auth_type,
         client_id=None,
         client_secret=None,
         access_token=None,
         refresh_token=None,
+        entry=None,
     ):
         self._hass = hass
+        self._entry = entry
         self._base_url = api_url.strip().rstrip("/")
+        self._auth_url = auth_url.strip().rstrip("/")
+        self._auth_type = auth_type
         self._client_id = client_id
         self._client_secret = client_secret
         self._access_token = access_token
         self._refresh_token = refresh_token
+        self._refresh_lock = asyncio.Lock()
 
-        _LOGGER.warning(
-            "BuildTrack API initialized | base_url=%s | client_id=%s | access_token_exists=%s",
+        _LOGGER.debug(
+            "BuildTrack API initialized | base_url=%s | access_token_exists=%s",
             self._base_url,
-            self._client_id,
             bool(self._access_token),
         )
 
@@ -38,6 +59,7 @@ class BuildTrackAPI:
         headers=None,
         response_key=None,
         success_status=200,
+        retry_auth=True,
     ):
         endpoint = endpoint if endpoint.startswith("/") else f"/{endpoint}"
         url = f"{self._base_url}{endpoint}"
@@ -49,9 +71,6 @@ class BuildTrackAPI:
 
         if self._access_token:
             default_headers["Authorization"] = self._access_token
-
-            # If your API needs Bearer token, use this instead:
-            # default_headers["Authorization"] = f"Bearer {self._access_token}"
 
         if headers:
             default_headers.update(headers)
@@ -69,17 +88,37 @@ class BuildTrackAPI:
                 text = await response.text()
 
                 _LOGGER.debug(
-                    "BuildTrack API CALL → %s %s | Status: %s",
+                    "BuildTrack API call | method=%s | endpoint=%s | status=%s",
                     method,
-                    url,
+                    endpoint,
                     response.status,
                 )
 
+                if response.status in (401, 403):
+                    if retry_auth and await self._refresh_access_token():
+                        return await self.call(
+                            endpoint=endpoint,
+                            method=method,
+                            payload=payload,
+                            params=params,
+                            headers=headers,
+                            response_key=response_key,
+                            success_status=success_status,
+                            retry_auth=False,
+                        )
+
+                    if self._entry is not None:
+                        self._entry.async_start_reauth(self._hass)
+
+                    raise BuildTrackAuthError(
+                        "BuildTrack authentication expired"
+                    )
+
                 if response.status != success_status:
                     _LOGGER.error(
-                        "BuildTrack API ERROR → %s %s | Status: %s | Body: %s",
+                        "BuildTrack API error | method=%s | endpoint=%s | status=%s | body=%s",
                         method,
-                        url,
+                        endpoint,
                         response.status,
                         text[:1000],
                     )
@@ -95,19 +134,95 @@ class BuildTrackAPI:
 
                 return data
 
+        except BuildTrackAuthError:
+            raise
         except Exception as err:
-            _LOGGER.exception("BuildTrack API Exception: %s", err)
-            return None
+            raise BuildTrackConnectionError(
+                f"BuildTrack API request failed: {err}"
+            ) from err
 
-    async def get_devices(self):
-        return await self.call(
-            endpoint="/getDevices",
-            method="GET",
-        )
+    async def _refresh_access_token(self):
+        async with self._refresh_lock:
+            if not self._client_id or not self._client_secret:
+                return False
 
-    async def control_device(self, entity_id, payload):
-        return await self.call(
-            endpoint=f"/controlDevice/{entity_id}",
-            method="POST",
-            payload=payload,
-        )
+            if self._auth_type == AUTH_TYPE_AUTH_CODE:
+                if not self._refresh_token:
+                    return False
+
+                payload = {
+                    "grant_type": "refresh_token",
+                    "refresh_token": self._refresh_token,
+                    "client_id": self._client_id,
+                    "client_secret": self._client_secret,
+                    "scope": SCOPE,
+                }
+            elif self._auth_type == AUTH_TYPE_CLIENT_CRED:
+                payload = {
+                    "grant_type": "client_credentials",
+                    "client_id": self._client_id,
+                    "client_secret": self._client_secret,
+                    "scope": SCOPE,
+                }
+            else:
+                return False
+
+            token_url = (
+                f"{self._auth_url}/index.php/oauthtokenservice/token"
+            )
+            session = async_get_clientsession(self._hass)
+
+            try:
+                async with session.post(
+                    token_url,
+                    data=payload,
+                    headers={
+                        "Content-Type": "application/x-www-form-urlencoded",
+                        "Accept": "application/json,text/plain,*/*",
+                    },
+                ) as response:
+                    if response.status != 200:
+                        _LOGGER.warning(
+                            "BuildTrack token refresh failed | status=%s",
+                            response.status,
+                        )
+                        return False
+
+                    data = await response.json(content_type=None)
+                    new_access_token = data.get("access_token")
+
+                    if not new_access_token:
+                        return False
+
+                    self._access_token = new_access_token
+                    self._refresh_token = (
+                        data.get("refresh_token") or self._refresh_token
+                    )
+
+                    if self._entry is not None:
+                        updated_data = dict(self._entry.data)
+                        updated_data.update(
+                            {
+                                "access_token": self._access_token,
+                                "refresh_token": self._refresh_token,
+                                "token_type": data.get("token_type"),
+                                "expires_in": data.get("expires_in"),
+                            }
+                        )
+                        self._hass.config_entries.async_update_entry(
+                            self._entry,
+                            data=updated_data,
+                        )
+
+                    _LOGGER.debug(
+                        "BuildTrack token refreshed successfully | expires_in=%s",
+                        data.get("expires_in"),
+                    )
+                    return True
+
+            except Exception as err:
+                _LOGGER.warning(
+                    "BuildTrack token refresh failed: %s",
+                    err,
+                )
+                return False

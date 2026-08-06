@@ -10,6 +10,10 @@ from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
+#  --------------------------------------------------------
+#  Common refresh button
+#  --------------------------------------------------------
+
 
 def get_location(device):
     location = device.get("location")
@@ -47,7 +51,7 @@ async def assign_device_to_area(hass, device_identifier, location):
             area_id=area.id,
         )
 
-        _LOGGER.warning(
+        _LOGGER.debug(
             "BuildTrack button assigned to area %s",
             location,
         )
@@ -128,7 +132,7 @@ class BuildTrackRefreshButton(ButtonEntity):
         )
 
     async def async_press(self):
-        _LOGGER.warning(
+        _LOGGER.debug(
             "BuildTrack refresh started for location %s",
             self._location,
         )
@@ -138,14 +142,14 @@ class BuildTrackRefreshButton(ButtonEntity):
             entity_key = device.get("entityKey")
 
             if not entity_id or not entity_key:
-                _LOGGER.warning(
+                _LOGGER.debug(
                     "BuildTrack refresh skipped device missing id/key | device=%s",
                     device,
                 )
                 continue
 
             try:
-                _LOGGER.warning(
+                _LOGGER.debug(
                     "BuildTrack raw readDeviceData call | location=%s | entityId=%s",
                     self._location,
                     entity_id,
@@ -160,7 +164,7 @@ class BuildTrackRefreshButton(ButtonEntity):
                     },
                 )
 
-                _LOGGER.warning(
+                _LOGGER.debug(
                     "BuildTrack raw readDeviceData response | location=%s | entityId=%s | response=%s",
                     self._location,
                     entity_id,
@@ -178,7 +182,7 @@ class BuildTrackRefreshButton(ButtonEntity):
 
         await self._update_buildtrack_entities()
 
-        _LOGGER.warning(
+        _LOGGER.debug(
             "BuildTrack refresh completed for location %s",
             self._location,
         )
@@ -196,7 +200,7 @@ class BuildTrackRefreshButton(ButtonEntity):
             ):
                 continue
 
-            _LOGGER.warning(
+            _LOGGER.debug(
                 "BuildTrack update_entity call | %s",
                 entity.entity_id,
             )

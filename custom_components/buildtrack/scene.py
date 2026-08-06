@@ -57,7 +57,7 @@ class BuildTrackScene(Scene):
     async def async_activate(self, **kwargs):
         """Activate BuildTrack scene."""
 
-        _LOGGER.warning(
+        _LOGGER.debug(
             "Activating BuildTrack Scene | name=%s | entityId=%s",
             self._attr_name,
             self._entity_id,
@@ -69,7 +69,7 @@ class BuildTrackScene(Scene):
             payload=None,
         )
 
-        _LOGGER.warning(
+        _LOGGER.debug(
             "BuildTrack Scene Response | name=%s | response=%s",
             self._attr_name,
             response,

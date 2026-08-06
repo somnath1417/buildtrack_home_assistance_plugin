@@ -10,6 +10,9 @@ from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
+#  --------------------------------------------------------
+#  Light and Dimmer control and card creation
+#  --------------------------------------------------------
 
 def get_location(device):
     location = device.get("location")
@@ -43,7 +46,7 @@ async def assign_device_to_area(hass, device_identifier, location):
 
     if device and device.area_id != area.id:
         device_registry.async_update_device(device.id, area_id=area.id)
-        _LOGGER.warning("BuildTrack device assigned to area: %s", location)
+        _LOGGER.debug("BuildTrack device assigned to area: %s", location)
 
 
 async def async_setup_entry(hass, entry, async_add_entities, discovery_info=None):
@@ -53,12 +56,12 @@ async def async_setup_entry(hass, entry, async_add_entities, discovery_info=None
 
     lights = []
 
-    _LOGGER.warning("BUILTRACK LIGHT SETUP START | total devices=%s", len(devices))
+    _LOGGER.debug("BUILTRACK LIGHT SETUP START | total devices=%s", len(devices))
 
     for device in devices:
         device_types = device.get("type", [])
 
-        _LOGGER.warning(
+        _LOGGER.debug(
             "BUILTRACK DEVICE CHECK | name=%s | id=%s | key=%s | type=%s",
             device.get("entityName"),
             device.get("entityId"),
@@ -68,13 +71,13 @@ async def async_setup_entry(hass, entry, async_add_entities, discovery_info=None
 
         if "LIGHT DIMMER" in device_types:
             lights.append(BuildTrackDimmer(hass, api, device))
-            _LOGGER.warning("BUILTRACK DIMMER ADDED | %s", device.get("entityName"))
+            _LOGGER.debug("BUILTRACK DIMMER ADDED | %s", device.get("entityName"))
 
         elif "LIGHT" in device_types:
             lights.append(BuildTrackLight(hass, api, device))
-            _LOGGER.warning("BUILTRACK LIGHT ADDED | %s", device.get("entityName"))
+            _LOGGER.debug("BUILTRACK LIGHT ADDED | %s", device.get("entityName"))
 
-    _LOGGER.warning("BUILTRACK LIGHT SETUP COMPLETE | total added=%s", len(lights))
+    _LOGGER.debug("BUILTRACK LIGHT SETUP COMPLETE | total added=%s", len(lights))
 
     async_add_entities(lights)
 
@@ -99,7 +102,7 @@ class BuildTrackLight(LightEntity):
         self._is_on = False
         self._last_local_change = None
 
-        _LOGGER.warning(
+        _LOGGER.debug(
             "BUILTRACK LIGHT INIT | name=%s | id=%s | key=%s",
             self._attr_name,
             self._entity_id,
@@ -120,7 +123,7 @@ class BuildTrackLight(LightEntity):
         return get_location(self._device)
 
     async def async_added_to_hass(self):
-        _LOGGER.warning("BUILTRACK LIGHT ADDED TO HASS | %s", self._attr_name)
+        _LOGGER.debug("BUILTRACK LIGHT ADDED TO HASS | %s", self._attr_name)
 
         location = get_location(self._device)
 
@@ -136,11 +139,11 @@ class BuildTrackLight(LightEntity):
         return True
 
     async def async_turn_on(self, **kwargs):
-        _LOGGER.warning("BUILTRACK LIGHT TURN ON CLICK | %s", self._attr_name)
+        _LOGGER.debug("BUILTRACK LIGHT TURN ON CLICK | %s", self._attr_name)
         self._set_local_state("on", True)
 
     async def async_turn_off(self, **kwargs):
-        _LOGGER.warning("BUILTRACK LIGHT TURN OFF CLICK | %s", self._attr_name)
+        _LOGGER.debug("BUILTRACK LIGHT TURN OFF CLICK | %s", self._attr_name)
         self._set_local_state("off", False)
 
     def _set_local_state(self, state: str, is_on: bool):
@@ -150,7 +153,7 @@ class BuildTrackLight(LightEntity):
         self._last_local_change = datetime.now()
         self.async_write_ha_state()
 
-        _LOGGER.warning(
+        _LOGGER.debug(
             "BUILTRACK LIGHT LOCAL STATE WRITE | %s | state=%s | is_on=%s",
             self._attr_name,
             state,
@@ -168,7 +171,7 @@ class BuildTrackLight(LightEntity):
             "state": state,
         }
 
-        _LOGGER.warning(
+        _LOGGER.debug(
             "BUILTRACK LIGHT CONTROL API CALL | %s | payload=%s",
             self._attr_name,
             payload,
@@ -181,7 +184,7 @@ class BuildTrackLight(LightEntity):
                 payload=payload,
             )
 
-            _LOGGER.warning(
+            _LOGGER.debug(
                 "BUILTRACK LIGHT CONTROL API RESPONSE | %s | response=%s",
                 self._attr_name,
                 response,
@@ -191,7 +194,7 @@ class BuildTrackLight(LightEntity):
                 self._is_on = old_state
                 self.async_write_ha_state()
 
-                _LOGGER.warning(
+                _LOGGER.debug(
                     "BUILTRACK LIGHT API FAILED ROLLBACK | %s | old_state=%s",
                     self._attr_name,
                     old_state,
@@ -208,7 +211,7 @@ class BuildTrackLight(LightEntity):
             )
 
     async def async_update(self):
-        _LOGGER.warning(
+        _LOGGER.debug(
             "BUILTRACK LIGHT async_update CALLED | %s | id=%s",
             self._attr_name,
             self._entity_id,
@@ -219,7 +222,7 @@ class BuildTrackLight(LightEntity):
             "entityKey": self._entity_key,
         }
 
-        _LOGGER.warning(
+        _LOGGER.debug(
             "BUILTRACK LIGHT READ API CALL | %s | payload=%s",
             self._attr_name,
             payload,
@@ -239,7 +242,7 @@ class BuildTrackLight(LightEntity):
             )
             return
 
-        _LOGGER.warning(
+        _LOGGER.debug(
             "BUILTRACK LIGHT READ API RESPONSE | %s | raw=%s | type=%s",
             self._attr_name,
             data,
@@ -247,14 +250,14 @@ class BuildTrackLight(LightEntity):
         )
 
         if not data:
-            _LOGGER.warning("BUILTRACK LIGHT READ EMPTY RESPONSE | %s", self._attr_name)
+            _LOGGER.debug("BUILTRACK LIGHT READ EMPTY RESPONSE | %s", self._attr_name)
             return
 
         if isinstance(data, dict) and isinstance(data.get("data"), dict):
             data = data.get("data")
 
         if not isinstance(data, dict):
-            _LOGGER.warning(
+            _LOGGER.debug(
                 "BUILTRACK LIGHT INVALID RESPONSE FORMAT | %s | data=%s",
                 self._attr_name,
                 data,
@@ -270,7 +273,7 @@ class BuildTrackLight(LightEntity):
             or ""
         ).strip().lower()
 
-        _LOGGER.warning(
+        _LOGGER.debug(
             "BUILTRACK LIGHT PARSED STATE | %s | parsed_state=%s",
             self._attr_name,
             state,
@@ -283,7 +286,7 @@ class BuildTrackLight(LightEntity):
             self._is_on = False
 
         else:
-            _LOGGER.warning(
+            _LOGGER.debug(
                 "BUILTRACK LIGHT UNKNOWN STATE FORMAT | %s | data=%s",
                 self._attr_name,
                 data,
@@ -292,7 +295,7 @@ class BuildTrackLight(LightEntity):
 
         self.async_write_ha_state()
 
-        _LOGGER.warning(
+        _LOGGER.debug(
             "BUILTRACK LIGHT FINAL HA STATE WRITE | %s | is_on=%s",
             self._attr_name,
             self._is_on,
@@ -320,7 +323,7 @@ class BuildTrackDimmer(LightEntity, RestoreEntity):
         self._brightness = 255
         self._last_local_change = None
 
-        _LOGGER.warning(
+        _LOGGER.debug(
             "BUILTRACK DIMMER INIT | name=%s | id=%s | key=%s",
             self._attr_name,
             self._entity_id,
@@ -343,7 +346,7 @@ class BuildTrackDimmer(LightEntity, RestoreEntity):
     async def async_added_to_hass(self):
         await super().async_added_to_hass()
 
-        _LOGGER.warning("BUILTRACK DIMMER ADDED TO HASS | %s", self._attr_name)
+        _LOGGER.debug("BUILTRACK DIMMER ADDED TO HASS | %s", self._attr_name)
 
         last_state = await self.async_get_last_state()
 
@@ -357,7 +360,7 @@ class BuildTrackDimmer(LightEntity, RestoreEntity):
             if self._brightness is None:
                 self._brightness = 255
 
-            _LOGGER.warning(
+            _LOGGER.debug(
                 "BUILTRACK DIMMER RESTORED STATE | %s | is_on=%s | brightness=%s",
                 self._attr_name,
                 self._is_on,
@@ -384,7 +387,7 @@ class BuildTrackDimmer(LightEntity, RestoreEntity):
     async def async_turn_on(self, **kwargs):
         brightness = kwargs.get("brightness")
 
-        _LOGGER.warning(
+        _LOGGER.debug(
             "BUILTRACK DIMMER TURN ON CLICK | %s | input_brightness=%s",
             self._attr_name,
             brightness,
@@ -409,7 +412,7 @@ class BuildTrackDimmer(LightEntity, RestoreEntity):
             "speed": brightness_percent,
         }
 
-        _LOGGER.warning(
+        _LOGGER.debug(
             "BUILTRACK DIMMER CONTROL API CALL | %s | payload=%s",
             self._attr_name,
             payload,
@@ -420,7 +423,7 @@ class BuildTrackDimmer(LightEntity, RestoreEntity):
         )
 
     async def async_turn_off(self, **kwargs):
-        _LOGGER.warning("BUILTRACK DIMMER TURN OFF CLICK | %s", self._attr_name)
+        _LOGGER.debug("BUILTRACK DIMMER TURN OFF CLICK | %s", self._attr_name)
 
         self._is_on = False
         self._brightness = 0
@@ -434,7 +437,7 @@ class BuildTrackDimmer(LightEntity, RestoreEntity):
             "speed": 0,
         }
 
-        _LOGGER.warning(
+        _LOGGER.debug(
             "BUILTRACK DIMMER CONTROL API CALL | %s | payload=%s",
             self._attr_name,
             payload,
@@ -452,7 +455,7 @@ class BuildTrackDimmer(LightEntity, RestoreEntity):
                 payload=payload,
             )
 
-            _LOGGER.warning(
+            _LOGGER.debug(
                 "BUILTRACK DIMMER CONTROL API RESPONSE | %s | response=%s",
                 self._attr_name,
                 response,
@@ -488,14 +491,14 @@ class BuildTrackDimmer(LightEntity, RestoreEntity):
             return
 
         if not data:
-            _LOGGER.warning("BUILTRACK DIMMER READ EMPTY RESPONSE | %s", self._attr_name)
+            _LOGGER.debug("BUILTRACK DIMMER READ EMPTY RESPONSE | %s", self._attr_name)
             return
 
         if isinstance(data, dict) and isinstance(data.get("data"), dict):
             data = data.get("data")
 
         if not isinstance(data, dict):
-            _LOGGER.warning(
+            _LOGGER.debug(
                 "BUILTRACK DIMMER INVALID RESPONSE FORMAT | %s | data=%s",
                 self._attr_name,
                 data,
@@ -527,7 +530,7 @@ class BuildTrackDimmer(LightEntity, RestoreEntity):
                 self._is_on = speed_int > 0
 
             except Exception as err:
-                _LOGGER.warning(
+                _LOGGER.debug(
                     "BUILTRACK DIMMER SPEED PARSE ERROR | %s | speed=%s | error=%s",
                     self._attr_name,
                     speed,
@@ -545,7 +548,7 @@ class BuildTrackDimmer(LightEntity, RestoreEntity):
             self._brightness = 0
 
         elif not state and speed is None:
-            _LOGGER.warning(
+            _LOGGER.debug(
                 "BUILTRACK DIMMER UNKNOWN RESPONSE FORMAT | %s | data=%s",
                 self._attr_name,
                 data,
@@ -556,4 +559,3 @@ class BuildTrackDimmer(LightEntity, RestoreEntity):
             self._brightness = 255 if self._is_on else 0
 
         self.async_write_ha_state()
-

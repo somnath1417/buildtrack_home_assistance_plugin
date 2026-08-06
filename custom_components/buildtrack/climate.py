@@ -15,6 +15,9 @@ from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
+#  --------------------------------------------------------
+#  Climate control and card creation 
+#  --------------------------------------------------------
 
 def get_location(device):
     location = device.get("location")
@@ -67,7 +70,7 @@ async def assign_device_to_area(hass, device_identifier, location):
             area_id=area.id,
         )
 
-        _LOGGER.warning(
+        _LOGGER.debug(
             "BuildTrack climate device assigned to area %s",
             location,
         )
@@ -80,7 +83,7 @@ async def async_setup_entry(hass, entry, async_add_entities, discovery_info=None
 
     climates = []
 
-    _LOGGER.warning(
+    _LOGGER.debug(
         "BUILTRACK CLIMATE SETUP START | total_devices=%s",
         len(devices),
     )
@@ -88,7 +91,7 @@ async def async_setup_entry(hass, entry, async_add_entities, discovery_info=None
     for device in devices:
         device_types = device.get("type", [])
 
-        _LOGGER.warning(
+        _LOGGER.debug(
             "BUILTRACK CLIMATE DEVICE CHECK | name=%s | id=%s | key=%s | type=%s",
             device.get("entityName"),
             device.get("entityId"),
@@ -103,12 +106,12 @@ async def async_setup_entry(hass, entry, async_add_entities, discovery_info=None
         ):
             climates.append(BuildTrackClimate(hass, api, device))
 
-            _LOGGER.warning(
+            _LOGGER.debug(
                 "BUILTRACK CLIMATE ADDED | %s",
                 device.get("entityName"),
             )
 
-    _LOGGER.warning(
+    _LOGGER.debug(
         "BUILTRACK CLIMATE SETUP COMPLETE | total_added=%s",
         len(climates),
     )
@@ -158,7 +161,7 @@ class BuildTrackClimate(ClimateEntity):
             | ClimateEntityFeature.FAN_MODE
         )
 
-        _LOGGER.warning(
+        _LOGGER.debug(
             "BUILTRACK CLIMATE INIT | name=%s | id=%s | key=%s",
             self._attr_name,
             self._entity_id,
@@ -179,7 +182,7 @@ class BuildTrackClimate(ClimateEntity):
         return get_location(self._device)
 
     async def async_added_to_hass(self):
-        _LOGGER.warning(
+        _LOGGER.debug(
             "BUILTRACK CLIMATE ADDED TO HASS | %s",
             self._attr_name,
         )
@@ -204,7 +207,7 @@ class BuildTrackClimate(ClimateEntity):
             "speed": speed,
         }
 
-        _LOGGER.warning(
+        _LOGGER.debug(
             "BUILTRACK CLIMATE CONTROL API CALL | name=%s | payload=%s",
             self._attr_name,
             payload,
@@ -217,7 +220,7 @@ class BuildTrackClimate(ClimateEntity):
                 payload=payload,
             )
 
-            _LOGGER.warning(
+            _LOGGER.debug(
                 "BUILTRACK CLIMATE CONTROL API RESPONSE | name=%s | response=%s",
                 self._attr_name,
                 response,
@@ -266,7 +269,7 @@ class BuildTrackClimate(ClimateEntity):
                 payload=payload,
             )
 
-            _LOGGER.warning(
+            _LOGGER.debug(
                 "BUILTRACK CLIMATE TEMPERATURE API RESPONSE | name=%s | payload=%s | response=%s",
                 self._attr_name,
                 payload,
@@ -284,7 +287,7 @@ class BuildTrackClimate(ClimateEntity):
             )
 
     async def async_set_hvac_mode(self, hvac_mode):
-        _LOGGER.warning(
+        _LOGGER.debug(
             "BUILTRACK CLIMATE HVAC MODE CHANGE REQUEST | name=%s | mode=%s",
             self._attr_name,
             hvac_mode,
@@ -317,7 +320,7 @@ class BuildTrackClimate(ClimateEntity):
         self.async_write_ha_state()
 
     async def async_update(self):
-        _LOGGER.warning(
+        _LOGGER.debug(
             "BUILTRACK CLIMATE READ async_update_device CALLED | name=%s | id=%s",
             self._attr_name,
             self._entity_id,
@@ -328,7 +331,7 @@ class BuildTrackClimate(ClimateEntity):
             "entityKey": self._entity_key,
         }
 
-        _LOGGER.warning(
+        _LOGGER.debug(
             "BUILTRACK CLIMATE READ API CALL | name=%s | payload=%s",
             self._attr_name,
             payload,
@@ -349,7 +352,7 @@ class BuildTrackClimate(ClimateEntity):
             )
             return
 
-        _LOGGER.warning(
+        _LOGGER.debug(
             "BUILTRACK CLIMATE READ API RESPONSE | name=%s | raw=%s | type=%s",
             self._attr_name,
             data,
@@ -357,7 +360,7 @@ class BuildTrackClimate(ClimateEntity):
         )
 
         if not data:
-            _LOGGER.warning(
+            _LOGGER.debug(
                 "BUILTRACK CLIMATE READ EMPTY RESPONSE | name=%s",
                 self._attr_name,
             )
@@ -370,7 +373,7 @@ class BuildTrackClimate(ClimateEntity):
             data = data[0]
 
         if not isinstance(data, dict):
-            _LOGGER.warning(
+            _LOGGER.debug(
                 "BUILTRACK CLIMATE INVALID RESPONSE FORMAT | name=%s | data=%s",
                 self._attr_name,
                 data,
@@ -413,7 +416,7 @@ class BuildTrackClimate(ClimateEntity):
             or data.get("room_temperature")
         )
 
-        _LOGGER.warning(
+        _LOGGER.debug(
             "BUILTRACK CLIMATE PARSED DATA BEFORE CONVERT | name=%s | state=%s | speed=%s | target_temp=%s | current_temp=%s",
             self._attr_name,
             state,
@@ -437,7 +440,7 @@ class BuildTrackClimate(ClimateEntity):
             self._attr_hvac_action = HVACAction.OFF
 
         else:
-            _LOGGER.warning(
+            _LOGGER.debug(
                 "BUILTRACK CLIMATE UNKNOWN STATE FORMAT | name=%s | state=%s | data=%s",
                 self._attr_name,
                 state,
@@ -461,7 +464,7 @@ class BuildTrackClimate(ClimateEntity):
                         self._attr_fan_mode = "high"
 
                 except Exception as err:
-                    _LOGGER.warning(
+                    _LOGGER.debug(
                         "BUILTRACK CLIMATE SPEED PARSE ERROR | name=%s | speed=%s | error=%s",
                         self._attr_name,
                         speed,
@@ -482,7 +485,7 @@ class BuildTrackClimate(ClimateEntity):
 
         self.async_write_ha_state()
 
-        _LOGGER.warning(
+        _LOGGER.debug(
             "BUILTRACK CLIMATE FINAL HA STATE WRITE | name=%s | hvac_mode=%s | hvac_action=%s | fan=%s | target_temp_c=%s | current_temp_c=%s",
             self._attr_name,
             self._attr_hvac_mode,

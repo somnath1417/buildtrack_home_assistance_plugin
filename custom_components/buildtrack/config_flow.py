@@ -24,6 +24,10 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
+# --------------------------------------------------------
+# Authentication and token exchange
+# --------------------------------------------------------
+
 CONF_REDIRECT_URI = "redirect_uri"
 
 CONF_GRANT_TYPE = "Grant Type"
@@ -103,7 +107,7 @@ class BuildTrackOAuthCallbackView(HomeAssistantView):
         state = request.query.get("state")
         error = request.query.get("error")
 
-        _LOGGER.warning(
+        _LOGGER.debug(
             "BuildTrack callback received: code=%s state=%s error=%s",
             bool(code),
             state,
@@ -191,6 +195,71 @@ class BuildTrackConfigFlow(
         return await self._create_buildtrack_entry(
             token_data
         )
+
+    async def async_step_reauth(self, entry_data):
+        """Start Home Assistant reauthentication."""
+        self._reauth_entry = self._get_reauth_entry()
+
+        self.context[CONF_API_URL] = entry_data.get(CONF_API_URL)
+        self.context[CONF_AUTH_URL] = entry_data.get(CONF_AUTH_URL)
+        self.context[CONF_AUTH_TYPE] = entry_data.get(CONF_AUTH_TYPE)
+        self.context[CONF_CLIENT_ID] = entry_data.get(CONF_CLIENT_ID)
+        self.context[CONF_CLIENT_SECRET] = entry_data.get(CONF_CLIENT_SECRET)
+        self.context[CONF_REDIRECT_URI] = entry_data.get(CONF_REDIRECT_URI)
+
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(self, user_input=None):
+        """Confirm BuildTrack reauthentication."""
+        errors = {}
+        entry = getattr(self, "_reauth_entry", None) or self._get_reauth_entry()
+
+        if user_input is None:
+            return self.async_show_form(
+                step_id="reauth_confirm",
+                data_schema=vol.Schema(
+                    {
+                        vol.Required(
+                            CONF_CLIENT_ID,
+                            default=entry.data.get(CONF_CLIENT_ID, ""),
+                        ): str,
+                        vol.Required(
+                            CONF_CLIENT_SECRET,
+                            default=entry.data.get(CONF_CLIENT_SECRET, ""),
+                        ): str,
+                    }
+                ),
+                errors=errors,
+            )
+
+        self.context[CONF_CLIENT_ID] = user_input[CONF_CLIENT_ID]
+        self.context[CONF_CLIENT_SECRET] = user_input[CONF_CLIENT_SECRET]
+
+        if self.context.get(CONF_AUTH_TYPE) == AUTH_TYPE_AUTH_CODE:
+            return await self._start_auth_code_flow()
+
+        token_data = await self._get_client_credentials_token()
+
+        if not token_data:
+            errors["base"] = "token_failed"
+            return self.async_show_form(
+                step_id="reauth_confirm",
+                data_schema=vol.Schema(
+                    {
+                        vol.Required(
+                            CONF_CLIENT_ID,
+                            default=user_input.get(CONF_CLIENT_ID, ""),
+                        ): str,
+                        vol.Required(
+                            CONF_CLIENT_SECRET,
+                            default=user_input.get(CONF_CLIENT_SECRET, ""),
+                        ): str,
+                    }
+                ),
+                errors=errors,
+            )
+
+        return await self._create_buildtrack_entry(token_data)
 
     async def _start_auth_code_flow(self):
         if not self.hass.data.get(
@@ -374,15 +443,6 @@ class BuildTrackConfigFlow(
                     content_type=None
                 )
 
-                _LOGGER.warning(
-                    "BUILTRACK TOKEN RESPONSE | access_token=%s | refresh_token=%s | token_type=%s | expires_in=%s | full=%s",
-                    data.get("access_token"),
-                    data.get("refresh_token"),
-                    data.get("token_type"),
-                    data.get("expires_in"),
-                    data,
-                )
-
                 if not data.get(
                     "access_token"
                 ):
@@ -402,12 +462,6 @@ class BuildTrackConfigFlow(
         self,
         token_data,
     ):
-        await self.async_set_unique_id(
-            "buildtrack"
-        )
-
-        self._abort_if_unique_id_configured()
-
         data = {
             CONF_API_URL:
                 self.context.get(CONF_API_URL),

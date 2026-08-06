@@ -2,10 +2,10 @@
   "domain": "buildtrack",
   "name": "BuildTrack",
   "version": "1.0.0",
-  "documentation": "https://example.com",
+  "documentation": "",
   "requirements": [],
   "dependencies": [],
   "codeowners": [],
-  "iot_class": "local_polling",
+  "iot_class": "cloud_polling",
   "config_flow": true
 }
