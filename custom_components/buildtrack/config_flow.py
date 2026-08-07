@@ -7,8 +7,15 @@ from aiohttp import web
 from homeassistant import config_entries
 from homeassistant.components.http import HomeAssistantView
 from homeassistant.helpers import selector
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from homeassistant.helpers.network import get_url, NoURLAvailableError
+from homeassistant.helpers.aiohttp_client import (
+    async_get_clientsession,
+)
+from homeassistant.helpers.network import (
+    get_url,
+    NoURLAvailableError,
+)
+
+from .api import get_token_url
 
 from .const import (
     DOMAIN,
@@ -37,12 +44,11 @@ def _clean_url(url: str) -> str:
     return url.strip().rstrip("/")
 
 
-def _token_url(auth_url: str) -> str:
-    return f"{_clean_url(auth_url)}/index.php/oauthtokenservice/token"
-
-
 def _authorize_url(auth_url: str) -> str:
-    return f"{_clean_url(auth_url)}/index.php/oauthtokenservice/authorize"
+    return (
+        f"{_clean_url(auth_url)}"
+        "/index.php/oauthtokenservice/authorize"
+    )
 
 
 def _build_user_schema(user_input=None):
@@ -52,22 +58,34 @@ def _build_user_schema(user_input=None):
         {
             vol.Required(
                 CONF_API_URL,
-                default=user_input.get(CONF_API_URL, ""),
+                default=user_input.get(
+                    CONF_API_URL,
+                    "",
+                ),
             ): str,
 
             vol.Required(
                 CONF_AUTH_URL,
-                default=user_input.get(CONF_AUTH_URL, ""),
+                default=user_input.get(
+                    CONF_AUTH_URL,
+                    "",
+                ),
             ): str,
 
             vol.Required(
                 CONF_CLIENT_ID,
-                default=user_input.get(CONF_CLIENT_ID, ""),
+                default=user_input.get(
+                    CONF_CLIENT_ID,
+                    "",
+                ),
             ): str,
 
             vol.Required(
                 CONF_CLIENT_SECRET,
-                default=user_input.get(CONF_CLIENT_SECRET, ""),
+                default=user_input.get(
+                    CONF_CLIENT_SECRET,
+                    "",
+                ),
             ): str,
 
             vol.Required(
@@ -80,27 +98,43 @@ def _build_user_schema(user_input=None):
                 selector.SelectSelectorConfig(
                     options=[
                         {
-                            "value": AUTH_TYPE_CLIENT_CRED,
-                            "label": "Client Credentials",
+                            "value":
+                                AUTH_TYPE_CLIENT_CRED,
+                            "label":
+                                "Client Credentials",
                         },
                         {
-                            "value": AUTH_TYPE_AUTH_CODE,
-                            "label": "Authorization Code",
+                            "value":
+                                AUTH_TYPE_AUTH_CODE,
+                            "label":
+                                "Authorization Code",
                         },
                     ],
-                    mode=selector.SelectSelectorMode.DROPDOWN,
+                    mode=(
+                        selector
+                        .SelectSelectorMode
+                        .DROPDOWN
+                    ),
                 )
             ),
         }
     )
 
 
-class BuildTrackOAuthCallbackView(HomeAssistantView):
+class BuildTrackOAuthCallbackView(
+    HomeAssistantView
+):
     requires_auth = False
+
     url = "/api/buildtrack/oauth/callback"
+
     name = "api:buildtrack:oauth:callback"
 
-    async def get(self, request: web.Request) -> web.Response:
+    async def get(
+        self,
+        request: web.Request,
+    ) -> web.Response:
+
         hass = request.app["hass"]
 
         code = request.query.get("code")
@@ -108,7 +142,8 @@ class BuildTrackOAuthCallbackView(HomeAssistantView):
         error = request.query.get("error")
 
         _LOGGER.debug(
-            "BuildTrack callback received: code=%s state=%s error=%s",
+            "BuildTrack callback received: "
+            "code=%s state=%s error=%s",
             bool(code),
             state,
             error,
@@ -130,9 +165,11 @@ class BuildTrackOAuthCallbackView(HomeAssistantView):
         )
 
         return web.Response(
-            text="<script>window.close()</script>"
-            "Authentication completed. "
-            "You can close this window.",
+            text=(
+                "<script>window.close()</script>"
+                "Authentication completed. "
+                "You can close this window."
+            ),
             content_type="text/html",
         )
 
@@ -143,7 +180,10 @@ class BuildTrackConfigFlow(
 ):
     VERSION = 1
 
-    async def async_step_user(self, user_input=None):
+    async def async_step_user(
+        self,
+        user_input=None,
+    ):
         errors = {}
 
         if user_input is None:
@@ -154,27 +194,32 @@ class BuildTrackConfigFlow(
             )
 
         await self.async_set_unique_id(DOMAIN)
+
         self._abort_if_unique_id_configured()
 
-        self.context[CONF_API_URL] = _clean_url(
-            user_input[CONF_API_URL]
+        self.context[CONF_API_URL] = (
+            _clean_url(
+                user_input[CONF_API_URL]
+            )
         )
 
-        self.context[CONF_AUTH_URL] = _clean_url(
-            user_input[CONF_AUTH_URL]
+        self.context[CONF_AUTH_URL] = (
+            _clean_url(
+                user_input[CONF_AUTH_URL]
+            )
         )
 
-        self.context[CONF_CLIENT_ID] = user_input[
-            CONF_CLIENT_ID
-        ]
+        self.context[CONF_CLIENT_ID] = (
+            user_input[CONF_CLIENT_ID]
+        )
 
-        self.context[CONF_CLIENT_SECRET] = user_input[
-            CONF_CLIENT_SECRET
-        ]
+        self.context[CONF_CLIENT_SECRET] = (
+            user_input[CONF_CLIENT_SECRET]
+        )
 
-        self.context[CONF_AUTH_TYPE] = user_input[
-            CONF_GRANT_TYPE
-        ]
+        self.context[CONF_AUTH_TYPE] = (
+            user_input[CONF_GRANT_TYPE]
+        )
 
         if (
             user_input[CONF_GRANT_TYPE]
@@ -182,7 +227,9 @@ class BuildTrackConfigFlow(
         ):
             return await self._start_auth_code_flow()
 
-        token_data = await self._get_client_credentials_token()
+        token_data = (
+            await self._get_client_credentials_token()
+        )
 
         if not token_data:
             errors["base"] = "token_failed"
@@ -199,23 +246,58 @@ class BuildTrackConfigFlow(
             token_data
         )
 
-    async def async_step_reauth(self, entry_data):
+    async def async_step_reauth(
+        self,
+        entry_data,
+    ):
         """Start Home Assistant reauthentication."""
-        self._reauth_entry = self._get_reauth_entry()
 
-        self.context[CONF_API_URL] = entry_data.get(CONF_API_URL)
-        self.context[CONF_AUTH_URL] = entry_data.get(CONF_AUTH_URL)
-        self.context[CONF_AUTH_TYPE] = entry_data.get(CONF_AUTH_TYPE)
-        self.context[CONF_CLIENT_ID] = entry_data.get(CONF_CLIENT_ID)
-        self.context[CONF_CLIENT_SECRET] = entry_data.get(CONF_CLIENT_SECRET)
-        self.context[CONF_REDIRECT_URI] = entry_data.get(CONF_REDIRECT_URI)
+        self._reauth_entry = (
+            self._get_reauth_entry()
+        )
+
+        self.context[CONF_API_URL] = (
+            entry_data.get(CONF_API_URL)
+        )
+
+        self.context[CONF_AUTH_URL] = (
+            entry_data.get(CONF_AUTH_URL)
+        )
+
+        self.context[CONF_AUTH_TYPE] = (
+            entry_data.get(CONF_AUTH_TYPE)
+        )
+
+        self.context[CONF_CLIENT_ID] = (
+            entry_data.get(CONF_CLIENT_ID)
+        )
+
+        self.context[CONF_CLIENT_SECRET] = (
+            entry_data.get(CONF_CLIENT_SECRET)
+        )
+
+        self.context[CONF_REDIRECT_URI] = (
+            entry_data.get(CONF_REDIRECT_URI)
+        )
 
         return await self.async_step_reauth_confirm()
 
-    async def async_step_reauth_confirm(self, user_input=None):
+    async def async_step_reauth_confirm(
+        self,
+        user_input=None,
+    ):
         """Confirm BuildTrack reauthentication."""
+
         errors = {}
-        entry = getattr(self, "_reauth_entry", None) or self._get_reauth_entry()
+
+        entry = (
+            getattr(
+                self,
+                "_reauth_entry",
+                None,
+            )
+            or self._get_reauth_entry()
+        )
 
         if user_input is None:
             return self.async_show_form(
@@ -224,47 +306,75 @@ class BuildTrackConfigFlow(
                     {
                         vol.Required(
                             CONF_CLIENT_ID,
-                            default=entry.data.get(CONF_CLIENT_ID, ""),
+                            default=entry.data.get(
+                                CONF_CLIENT_ID,
+                                "",
+                            ),
                         ): str,
+
                         vol.Required(
                             CONF_CLIENT_SECRET,
-                            default=entry.data.get(CONF_CLIENT_SECRET, ""),
+                            default=entry.data.get(
+                                CONF_CLIENT_SECRET,
+                                "",
+                            ),
                         ): str,
                     }
                 ),
                 errors=errors,
             )
 
-        self.context[CONF_CLIENT_ID] = user_input[CONF_CLIENT_ID]
-        self.context[CONF_CLIENT_SECRET] = user_input[CONF_CLIENT_SECRET]
+        self.context[CONF_CLIENT_ID] = (
+            user_input[CONF_CLIENT_ID]
+        )
 
-        if self.context.get(CONF_AUTH_TYPE) == AUTH_TYPE_AUTH_CODE:
+        self.context[CONF_CLIENT_SECRET] = (
+            user_input[CONF_CLIENT_SECRET]
+        )
+
+        if (
+            self.context.get(CONF_AUTH_TYPE)
+            == AUTH_TYPE_AUTH_CODE
+        ):
             return await self._start_auth_code_flow()
 
-        token_data = await self._get_client_credentials_token()
+        token_data = (
+            await self._get_client_credentials_token()
+        )
 
         if not token_data:
             errors["base"] = "token_failed"
+
             return self.async_show_form(
                 step_id="reauth_confirm",
                 data_schema=vol.Schema(
                     {
                         vol.Required(
                             CONF_CLIENT_ID,
-                            default=user_input.get(CONF_CLIENT_ID, ""),
+                            default=user_input.get(
+                                CONF_CLIENT_ID,
+                                "",
+                            ),
                         ): str,
+
                         vol.Required(
                             CONF_CLIENT_SECRET,
-                            default=user_input.get(CONF_CLIENT_SECRET, ""),
+                            default=user_input.get(
+                                CONF_CLIENT_SECRET,
+                                "",
+                            ),
                         ): str,
                     }
                 ),
                 errors=errors,
             )
 
-        return await self._create_buildtrack_entry(token_data)
+        return await self._create_buildtrack_entry(
+            token_data
+        )
 
     async def _start_auth_code_flow(self):
+
         if not self.hass.data.get(
             f"{DOMAIN}_callback_registered"
         ):
@@ -293,12 +403,14 @@ class BuildTrackConfigFlow(
 
         redirect_uri = (
             f"{base_url.rstrip('/')}"
-            f"/api/buildtrack/oauth/callback"
+            "/api/buildtrack/oauth/callback"
         )
 
         state = self.flow_id
 
-        self.context["oauth_state"] = state
+        self.context[
+            "oauth_state"
+        ] = state
 
         self.context[
             CONF_REDIRECT_URI
@@ -307,15 +419,18 @@ class BuildTrackConfigFlow(
         params = {
             "scope": SCOPE,
             "state": state,
-            "client_id": self.context[
-                CONF_CLIENT_ID
-            ],
-            "redirect_uri": redirect_uri,
-            "response_type": "code",
+            "client_id":
+                self.context[CONF_CLIENT_ID],
+            "redirect_uri":
+                redirect_uri,
+            "response_type":
+                "code",
         }
 
         auth_url = (
-            f"{_authorize_url(self.context[CONF_AUTH_URL])}"
+            f"{_authorize_url(
+                self.context[CONF_AUTH_URL]
+            )}"
             f"?{urlencode(params)}"
         )
 
@@ -324,20 +439,27 @@ class BuildTrackConfigFlow(
             url=auth_url,
         )
 
-    async def async_step_auth(self, user_input=None):
+    async def async_step_auth(
+        self,
+        user_input=None,
+    ):
+
         if not user_input:
             return self.async_abort(
                 reason="missing_callback_data"
             )
 
-        returned_state = user_input.get("state")
+        returned_state = (
+            user_input.get("state")
+        )
 
         code = user_input.get("code")
-
         error = user_input.get("error")
 
-        expected_state = self.context.get(
-            "oauth_state"
+        expected_state = (
+            self.context.get(
+                "oauth_state"
+            )
         )
 
         if error:
@@ -355,7 +477,9 @@ class BuildTrackConfigFlow(
                 reason="missing_code"
             )
 
-        self.context["auth_code"] = code
+        self.context[
+            "auth_code"
+        ] = code
 
         return self.async_external_step_done(
             next_step_id="auth_done"
@@ -365,6 +489,7 @@ class BuildTrackConfigFlow(
         self,
         user_input=None,
     ):
+
         token_data = (
             await self._exchange_code_for_token()
         )
@@ -378,35 +503,59 @@ class BuildTrackConfigFlow(
             token_data
         )
 
-    async def _get_client_credentials_token(self):
+    async def _get_client_credentials_token(
+        self,
+    ):
+
         payload = {
-            "grant_type": "client_credentials",
-            "client_id": self.context.get(
-                CONF_CLIENT_ID
-            ),
-            "client_secret": self.context.get(
-                CONF_CLIENT_SECRET
-            ),
-            "scope": SCOPE,
+            "grant_type":
+                "client_credentials",
+
+            "client_id":
+                self.context.get(
+                    CONF_CLIENT_ID
+                ),
+
+            "client_secret":
+                self.context.get(
+                    CONF_CLIENT_SECRET
+                ),
+
+            "scope":
+                SCOPE,
         }
 
         return await self._post_token_request(
             payload
         )
 
-    async def _exchange_code_for_token(self):
+    async def _exchange_code_for_token(
+        self,
+    ):
+
         payload = {
-            "grant_type": "authorization_code",
-            "client_id": self.context.get(
-                CONF_CLIENT_ID
-            ),
-            "client_secret": self.context.get(
-                CONF_CLIENT_SECRET
-            ),
-            "code": self.context.get("auth_code"),
-            "redirect_uri": self.context.get(
-                CONF_REDIRECT_URI
-            ),
+            "grant_type":
+                "authorization_code",
+
+            "client_id":
+                self.context.get(
+                    CONF_CLIENT_ID
+                ),
+
+            "client_secret":
+                self.context.get(
+                    CONF_CLIENT_SECRET
+                ),
+
+            "code":
+                self.context.get(
+                    "auth_code"
+                ),
+
+            "redirect_uri":
+                self.context.get(
+                    CONF_REDIRECT_URI
+                ),
         }
 
         return await self._post_token_request(
@@ -417,13 +566,16 @@ class BuildTrackConfigFlow(
         self,
         payload,
     ):
-        token_url = _token_url(
+
+        # Uses common method from api.py
+        token_url = get_token_url(
             self.context[CONF_AUTH_URL]
         )
 
         headers = {
             "Content-Type":
                 "application/x-www-form-urlencoded",
+
             "Accept":
                 "application/json,text/plain,*/*",
         }
@@ -465,25 +617,35 @@ class BuildTrackConfigFlow(
         self,
         token_data,
     ):
+
         data = {
             CONF_API_URL:
-                self.context.get(CONF_API_URL),
+                self.context.get(
+                    CONF_API_URL
+                ),
 
             CONF_AUTH_URL:
-                self.context.get(CONF_AUTH_URL),
+                self.context.get(
+                    CONF_AUTH_URL
+                ),
 
             CONF_AUTH_TYPE:
-                self.context.get(CONF_AUTH_TYPE),
+                self.context.get(
+                    CONF_AUTH_TYPE
+                ),
 
             CONF_CLIENT_ID:
-                self.context.get(CONF_CLIENT_ID),
+                self.context.get(
+                    CONF_CLIENT_ID
+                ),
 
             CONF_CLIENT_SECRET:
                 self.context.get(
                     CONF_CLIENT_SECRET
                 ),
 
-            "scope": SCOPE,
+            "scope":
+                SCOPE,
 
             "access_token":
                 token_data.get(
@@ -518,15 +680,24 @@ class BuildTrackConfigFlow(
                 CONF_REDIRECT_URI
             )
 
-        if self.source == config_entries.SOURCE_REAUTH:
+        if (
+            self.source
+            == config_entries.SOURCE_REAUTH
+        ):
             reauth_entry = (
-                getattr(self, "_reauth_entry", None)
+                getattr(
+                    self,
+                    "_reauth_entry",
+                    None,
+                )
                 or self._get_reauth_entry()
             )
 
-            return self.async_update_reload_and_abort(
-                reauth_entry,
-                data=data,
+            return (
+                self.async_update_reload_and_abort(
+                    reauth_entry,
+                    data=data,
+                )
             )
 
         return self.async_create_entry(
