@@ -153,6 +153,9 @@ class BuildTrackConfigFlow(
                 errors=errors,
             )
 
+        await self.async_set_unique_id(DOMAIN)
+        self._abort_if_unique_id_configured()
+
         self.context[CONF_API_URL] = _clean_url(
             user_input[CONF_API_URL]
         )
@@ -513,6 +516,17 @@ class BuildTrackConfigFlow(
                 CONF_REDIRECT_URI
             ] = self.context.get(
                 CONF_REDIRECT_URI
+            )
+
+        if self.source == config_entries.SOURCE_REAUTH:
+            reauth_entry = (
+                getattr(self, "_reauth_entry", None)
+                or self._get_reauth_entry()
+            )
+
+            return self.async_update_reload_and_abort(
+                reauth_entry,
+                data=data,
             )
 
         return self.async_create_entry(

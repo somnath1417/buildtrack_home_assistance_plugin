@@ -63,11 +63,21 @@ class BuildTrackScene(Scene):
             self._entity_id,
         )
 
-        response = await self._api.call(
-            endpoint=f"/activateScene/{self._entity_id}",
-            method="POST",
-            payload=None,
-        )
+        try:
+            response = await self._api.call(
+                endpoint=f"/activateScene/{self._entity_id}",
+                method="POST",
+                payload=None,
+            )
+        except Exception as err:
+            _LOGGER.exception(
+                "BuildTrack Scene Activation Error | "
+                "name=%s | entityId=%s | error=%s",
+                self._attr_name,
+                self._entity_id,
+                err,
+            )
+            return
 
         _LOGGER.debug(
             "BuildTrack Scene Response | name=%s | response=%s",
